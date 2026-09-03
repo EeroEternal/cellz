@@ -275,4 +275,49 @@ async fn test_cell_lifecycle_and_state_machine() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
+
+    // 12. Test batch event append
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/cells/agent-session-001/events/batch")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "events": [
+                            { "event_type": "turn_start", "payload": { "turn": 2 } },
+                            { "event_type": "user_message", "payload": { "content": "How are you?" } },
+                            { "event_type": "agent_message", "payload": { "content": "I am ready!" } }
+                        ]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body = res.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["events"].as_array().unwrap().len(), 3);
+
+    // 13. Test export cell
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/cells/agent-session-001/export")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["export"]["events"].as_array().unwrap().len() >= 4);
+    assert_eq!(json["export"]["meta"]["id"], "agent-session-001");
 }

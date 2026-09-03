@@ -241,6 +241,105 @@ impl CellDb {
         })
     }
 
+    pub async fn append_events_batch(
+        &self,
+        requests: Vec<crate::model::event::AppendEventRequest>,
+    ) -> Result<Vec<EventRecord>> {
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let count = requests.len() as i64;
+
+        let seq_row = sqlx::query(
+            "UPDATE cell_meta SET event_sequence = event_sequence + ?1, updated_at = ?2 WHERE id = ?3 RETURNING event_sequence",
+        )
+        .bind(count)
+        .bind(Utc::now().to_rfc3339())
+        .bind(&self.cell_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let final_seq: i64 = seq_row.get(0);
+        let start_seq = final_seq - count + 1;
+
+        let mut records = Vec::with_capacity(requests.len());
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+
+        for (idx, req) in requests.into_iter().enumerate() {
+            let seq = start_seq + idx as i64;
+            let event_id = Uuid::new_v4().to_string();
+            let payload_str = serde_json::to_string(&req.payload)?;
+
+            sqlx::query(
+                "INSERT INTO events (sequence, id, turn_id, event_type, payload, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )
+            .bind(seq)
+            .bind(&event_id)
+            .bind(&req.turn_id)
+            .bind(&req.event_type)
+            .bind(&payload_str)
+            .bind(&now_str)
+            .execute(&mut *tx)
+            .await?;
+
+            if req.event_type == "user_message" || req.event_type == "agent_message" || req.event_type == "system_message" {
+                let role = match req.event_type.as_str() {
+                    "user_message" => "user",
+                    "agent_message" => "assistant",
+                    _ => "system",
+                };
+                let content = req.payload.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let name = req.payload.get("name").and_then(|v| v.as_str());
+                let tool_call_id = req.payload.get("tool_call_id").and_then(|v| v.as_str());
+
+                sqlx::query(
+                    "INSERT INTO messages (id, role, content, name, tool_call_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT(id) DO UPDATE SET content = ?3;",
+                )
+                .bind(&event_id)
+                .bind(role)
+                .bind(content)
+                .bind(name)
+                .bind(tool_call_id)
+                .bind(&now_str)
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            records.push(EventRecord {
+                sequence: seq,
+                id: event_id,
+                cell_id: self.cell_id.clone(),
+                turn_id: req.turn_id,
+                event_type: req.event_type,
+                payload: req.payload,
+                created_at: now,
+            });
+        }
+
+        tx.commit().await?;
+        Ok(records)
+    }
+
+    pub async fn export_cell(&self) -> Result<crate::model::state::CellExport> {
+        let meta = self.get_meta().await?;
+        let events = self.get_events(None, Some(100_000)).await?;
+        let messages = self.get_messages().await?;
+        let kv = self.list_kv().await?;
+        let checkpoints = self.list_checkpoints().await?;
+
+        Ok(crate::model::state::CellExport {
+            meta,
+            events,
+            messages,
+            kv,
+            checkpoints,
+        })
+    }
+
     pub async fn get_events(&self, since_seq: Option<i64>, limit: Option<i64>) -> Result<Vec<EventRecord>> {
         let since = since_seq.unwrap_or(0);
         let lim = limit.unwrap_or(500);

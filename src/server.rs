@@ -7,8 +7,9 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::api::handlers::{
-    append_event, backup_cell, create_cell, create_checkpoint, evict_cell, get_cell, get_events,
-    get_messages, list_cells, list_kv, restore_checkpoint, set_kv, AppState,
+    append_event, append_events_batch, backup_cell, create_cell, create_checkpoint, evict_cell,
+    export_cell, get_cell, get_events, get_messages, list_cells, list_kv, restore_checkpoint,
+    set_kv, AppState,
 };
 use crate::api::ws::{sse_events_stream, ws_cell_handler};
 use crate::cell::CellManager;
@@ -21,6 +22,8 @@ pub fn create_router(manager: Arc<CellManager>) -> Router {
         .route("/api/v1/cells", get(list_cells).post(create_cell))
         .route("/api/v1/cells/{id}", get(get_cell))
         .route("/api/v1/cells/{id}/events", get(get_events).post(append_event))
+        .route("/api/v1/cells/{id}/events/batch", post(append_events_batch))
+        .route("/api/v1/cells/{id}/export", get(export_cell))
         .route("/api/v1/cells/{id}/messages", get(get_messages))
         .route("/api/v1/cells/{id}/kv", get(list_kv).post(set_kv))
         .route("/api/v1/cells/{id}/checkpoints", post(create_checkpoint))

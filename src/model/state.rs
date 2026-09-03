@@ -84,3 +84,17 @@ pub struct SetKVRequest {
     pub key: String,
     pub value: serde_json::Value,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchAppendRequest {
+    pub events: Vec<crate::model::event::AppendEventRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CellExport {
+    pub meta: CellMeta,
+    pub events: Vec<crate::model::event::EventRecord>,
+    pub messages: Vec<crate::model::event::Message>,
+    pub kv: std::collections::HashMap<String, serde_json::Value>,
+    pub checkpoints: Vec<CheckpointRecord>,
+}

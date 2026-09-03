@@ -17,10 +17,17 @@ pub enum ActorMessage {
         payload: Value,
         reply: oneshot::Sender<Result<EventRecord>>,
     },
+    AppendEventsBatch {
+        requests: Vec<crate::model::event::AppendEventRequest>,
+        reply: oneshot::Sender<Result<Vec<EventRecord>>>,
+    },
     GetEvents {
         since_seq: Option<i64>,
         limit: Option<i64>,
         reply: oneshot::Sender<Result<Vec<EventRecord>>>,
+    },
+    Export {
+        reply: oneshot::Sender<Result<crate::model::state::CellExport>>,
     },
     GetMessages {
         reply: oneshot::Sender<Result<Vec<Message>>>,
@@ -78,6 +85,27 @@ impl CellHandle {
                 payload,
                 reply,
             })
+            .await
+            .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
+        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+    }
+
+    pub async fn append_events_batch(
+        &self,
+        requests: Vec<crate::model::event::AppendEventRequest>,
+    ) -> Result<Vec<EventRecord>> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(ActorMessage::AppendEventsBatch { requests, reply })
+            .await
+            .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
+        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+    }
+
+    pub async fn export(&self) -> Result<crate::model::state::CellExport> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(ActorMessage::Export { reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
         rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
@@ -244,6 +272,19 @@ impl CellActor {
                         // Broadcast event to active subscribers (SSE / WS)
                         let _ = self.event_bus.send(record.clone());
                     }
+                    let _ = reply.send(res);
+                }
+                ActorMessage::AppendEventsBatch { requests, reply } => {
+                    let res = self.db.append_events_batch(requests).await;
+                    if let Ok(ref records) = res {
+                        for rec in records {
+                            let _ = self.event_bus.send(rec.clone());
+                        }
+                    }
+                    let _ = reply.send(res);
+                }
+                ActorMessage::Export { reply } => {
+                    let res = self.db.export_cell().await;
                     let _ = reply.send(res);
                 }
                 ActorMessage::GetEvents {

@@ -101,6 +101,49 @@ pub async fn append_event(
     }
 }
 
+pub async fn append_events_batch(
+    State(state): State<AppState>,
+    Path(cell_id): Path<String>,
+    Json(req): Json<crate::model::state::BatchAppendRequest>,
+) -> impl IntoResponse {
+    match state.manager.get_or_activate(&cell_id).await {
+        Ok(handle) => match handle.append_events_batch(req.events).await {
+            Ok(events) => (StatusCode::CREATED, Json(json!({ "events": events }))).into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response(),
+        },
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn export_cell(
+    State(state): State<AppState>,
+    Path(cell_id): Path<String>,
+) -> impl IntoResponse {
+    match state.manager.get_or_activate(&cell_id).await {
+        Ok(handle) => match handle.export().await {
+            Ok(data) => (StatusCode::OK, Json(json!({ "export": data }))).into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response(),
+        },
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
 pub async fn get_events(
     State(state): State<AppState>,
     Path(cell_id): Path<String>,
