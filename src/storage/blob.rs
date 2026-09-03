@@ -152,3 +152,162 @@ impl BlobStore for LocalBlobStore {
         Ok(())
     }
 }
+
+/// S3 / Cloudflare R2 implementation of BlobStore.
+#[derive(Debug)]
+pub struct S3BlobStore {
+    store: std::sync::Arc<object_store::aws::AmazonS3>,
+}
+
+impl S3BlobStore {
+    pub fn new(
+        endpoint: &str,
+        bucket: &str,
+        access_key_id: &str,
+        secret_access_key: &str,
+        region: Option<&str>,
+    ) -> Result<Self> {
+        let store = object_store::aws::AmazonS3Builder::new()
+            .with_endpoint(endpoint)
+            .with_bucket_name(bucket)
+            .with_access_key_id(access_key_id)
+            .with_secret_access_key(secret_access_key)
+            .with_region(region.unwrap_or("auto"))
+            .build()
+            .context("Failed to build S3/R2 client")?;
+
+        Ok(Self {
+            store: std::sync::Arc::new(store),
+        })
+    }
+
+    fn obj_path(path: &str) -> object_store::path::Path {
+        let cleaned = path.trim_start_matches('/');
+        object_store::path::Path::from(cleaned)
+    }
+
+    fn lease_obj_path(key: &str) -> object_store::path::Path {
+        object_store::path::Path::from(format!("leases/{}.lease", key))
+    }
+}
+
+#[async_trait]
+impl BlobStore for S3BlobStore {
+    async fn get(&self, path: &str) -> Result<Vec<u8>> {
+        use object_store::ObjectStore;
+        let op = Self::obj_path(path);
+        let res = self
+            .store
+            .get(&op)
+            .await
+            .with_context(|| format!("Failed to fetch S3 object at {}", path))?;
+        let bytes = res.bytes().await.context("Failed to stream S3 object bytes")?;
+        Ok(bytes.to_vec())
+    }
+
+    async fn put(&self, path: &str, data: Vec<u8>) -> Result<()> {
+        use object_store::ObjectStore;
+        let op = Self::obj_path(path);
+        self.store
+            .put(&op, data.into())
+            .await
+            .with_context(|| format!("Failed to put S3 object at {}", path))?;
+        Ok(())
+    }
+
+    async fn delete(&self, path: &str) -> Result<()> {
+        use object_store::ObjectStore;
+        let op = Self::obj_path(path);
+        self.store
+            .delete(&op)
+            .await
+            .with_context(|| format!("Failed to delete S3 object at {}", path))?;
+        Ok(())
+    }
+
+    async fn exists(&self, path: &str) -> Result<bool> {
+        use object_store::ObjectStore;
+        let op = Self::obj_path(path);
+        match self.store.head(&op).await {
+            Ok(_) => Ok(true),
+            Err(object_store::Error::NotFound { .. }) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    async fn acquire_lease(&self, key: &str, holder: &str, ttl_secs: u64) -> Result<bool> {
+        use object_store::ObjectStore;
+        let lp = Self::lease_obj_path(key);
+        let now = Utc::now();
+
+        let existing_lease: Option<LeaseRecord> = match self.store.get(&lp).await {
+            Ok(res) => {
+                let bytes = res.bytes().await.ok();
+                bytes.and_then(|b| serde_json::from_slice(&b).ok())
+            }
+            Err(_) => None,
+        };
+
+        if let Some(ref record) = existing_lease
+            && record.expires_at > now
+            && record.holder != holder
+        {
+            return Ok(false);
+        }
+
+        let record = LeaseRecord {
+            holder: holder.to_string(),
+            expires_at: now + Duration::seconds(ttl_secs as i64),
+        };
+        let data = serde_json::to_vec(&record)?;
+        self.store.put(&lp, data.into()).await?;
+        Ok(true)
+    }
+
+    async fn renew_lease(&self, key: &str, holder: &str, ttl_secs: u64) -> Result<bool> {
+        use object_store::ObjectStore;
+        let lp = Self::lease_obj_path(key);
+        let now = Utc::now();
+
+        let Ok(res) = self.store.get(&lp).await else {
+            return Ok(false);
+        };
+        let Ok(bytes) = res.bytes().await else {
+            return Ok(false);
+        };
+        let Ok(record) = serde_json::from_slice::<LeaseRecord>(&bytes) else {
+            return Ok(false);
+        };
+
+        if record.holder != holder || record.expires_at <= now {
+            return Ok(false);
+        }
+
+        let renewed = LeaseRecord {
+            holder: holder.to_string(),
+            expires_at: now + Duration::seconds(ttl_secs as i64),
+        };
+        let data = serde_json::to_vec(&renewed)?;
+        self.store.put(&lp, data.into()).await?;
+        Ok(true)
+    }
+
+    async fn release_lease(&self, key: &str, holder: &str) -> Result<()> {
+        use object_store::ObjectStore;
+        let lp = Self::lease_obj_path(key);
+        let existing_lease: Option<LeaseRecord> = match self.store.get(&lp).await {
+            Ok(res) => {
+                let bytes = res.bytes().await.ok();
+                bytes.and_then(|b| serde_json::from_slice(&b).ok())
+            }
+            Err(_) => None,
+        };
+
+        if let Some(record) = existing_lease
+            && record.holder == holder
+        {
+            self.store.delete(&lp).await.ok();
+        }
+        Ok(())
+    }
+}

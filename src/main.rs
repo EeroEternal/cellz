@@ -19,7 +19,25 @@ async fn main() -> Result<()> {
         .init();
 
     let config = Config::default();
-    let storage = Arc::new(LocalBlobStore::new(&config.storage_dir));
+    let storage: Arc<dyn cellz::storage::BlobStore> = if config.storage_backend == "s3" {
+        let endpoint = config.s3_endpoint.as_deref().unwrap_or_default();
+        let bucket = config.s3_bucket.as_deref().unwrap_or_default();
+        let access_key = config.s3_access_key_id.as_deref().unwrap_or_default();
+        let secret_key = config.s3_secret_access_key.as_deref().unwrap_or_default();
+        let region = config.s3_region.as_deref();
+
+        info!("📦 Initializing S3/R2 BlobStore for bucket '{}' at '{}'", bucket, endpoint);
+        Arc::new(cellz::storage::S3BlobStore::new(
+            endpoint,
+            bucket,
+            access_key,
+            secret_key,
+            region,
+        )?)
+    } else {
+        info!("📂 Initializing Local Filesystem BlobStore at {:?}", config.storage_dir);
+        Arc::new(LocalBlobStore::new(&config.storage_dir))
+    };
     let manager = Arc::new(CellManager::new(&config.data_dir, storage));
 
     // Background task to periodically renew leases for all active in-memory cells
