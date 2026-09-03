@@ -19,15 +19,17 @@ pub struct CellManager {
     cells_dir: PathBuf,
     storage: Arc<dyn BlobStore>,
     active_cells: Arc<RwLock<HashMap<String, CellHandle>>>,
+    lease_ttl_secs: u64,
 }
 
 impl CellManager {
-    pub fn new(cells_dir: impl AsRef<Path>, storage: Arc<dyn BlobStore>) -> Self {
+    pub fn new(cells_dir: impl AsRef<Path>, storage: Arc<dyn BlobStore>, lease_ttl_secs: u64) -> Self {
         Self {
             node_id: Uuid::new_v4().to_string(),
             cells_dir: cells_dir.as_ref().to_path_buf(),
             storage,
             active_cells: Arc::new(RwLock::new(HashMap::new())),
+            lease_ttl_secs,
         }
     }
 
@@ -55,24 +57,49 @@ impl CellManager {
             return Ok(handle.clone());
         }
 
-        // 3. Acquire distributed single-writer lease (TTL 60s)
-        let acquired = self.storage.acquire_lease(cell_id, &self.node_id, 60).await?;
+        // 3. Acquire distributed single-writer lease
+        let acquired = self.storage.acquire_lease(cell_id, &self.node_id, self.lease_ttl_secs).await?;
         if !acquired {
             bail!("Cell '{}' is currently leased by another active node", cell_id);
         }
 
-        // 4. Check if local database exists, otherwise try restoring from BlobStore
+        // 4. Check if remote snapshot is newer than local database
         let db_path = self.cell_db_path(cell_id);
-        if !fs::try_exists(&db_path).await.unwrap_or(false) {
-            let blob_key = format!("cells/{}.db", cell_id);
-            if self.storage.exists(&blob_key).await.unwrap_or(false) {
-                info!("Restoring cell '{}' from storage snapshot '{}'", cell_id, blob_key);
-                let bytes = self.storage.get(&blob_key).await?;
-                if let Some(parent) = db_path.parent() {
-                    fs::create_dir_all(parent).await?;
-                }
-                fs::write(&db_path, bytes).await?;
+        let blob_key = format!("cells/{}.db", cell_id);
+        let meta_key = format!("cells/{}.meta.json", cell_id);
+
+        let remote_meta: Option<CellMeta> = if self.storage.exists(&meta_key).await.unwrap_or(false) {
+            if let Ok(bytes) = self.storage.get(&meta_key).await {
+                serde_json::from_slice(&bytes).ok()
+            } else {
+                None
             }
+        } else {
+            None
+        };
+
+        let should_download = if !fs::try_exists(&db_path).await.unwrap_or(false) {
+            self.storage.exists(&blob_key).await.unwrap_or(false)
+        } else if let Some(ref r_meta) = remote_meta {
+            // Local file exists: check if remote has higher event_sequence
+            if let Ok(local_db) = CellDb::open(cell_id, &db_path, None).await {
+                let local_seq = local_db.get_meta().await.map(|m| m.event_sequence).unwrap_or(0);
+                local_db.close().await;
+                r_meta.event_sequence > local_seq
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+
+        if should_download {
+            info!("Restoring cell '{}' from storage snapshot '{}'", cell_id, blob_key);
+            let bytes = self.storage.get(&blob_key).await?;
+            if let Some(parent) = db_path.parent() {
+                fs::create_dir_all(parent).await?;
+            }
+            fs::write(&db_path, bytes).await?;
         }
 
         // 5. Open SQLite DB and spawn actor
@@ -98,7 +125,7 @@ impl CellManager {
             bail!("Cell with id '{}' is already active", cell_id);
         }
 
-        let acquired = self.storage.acquire_lease(&cell_id, &self.node_id, 60).await?;
+        let acquired = self.storage.acquire_lease(&cell_id, &self.node_id, self.lease_ttl_secs).await?;
         if !acquired {
             bail!("Failed to acquire lease for new cell '{}'", cell_id);
         }
@@ -118,21 +145,32 @@ impl CellManager {
         Ok(handle)
     }
 
-    /// Persist SQLite database snapshot to BlobStore.
+    /// Persist SQLite database snapshot to BlobStore serialized within actor mailbox.
     pub async fn backup_cell(&self, cell_id: &str) -> Result<()> {
-        let db_path = self.cell_db_path(cell_id);
-        if !fs::try_exists(&db_path).await.unwrap_or(false) {
-            bail!("Cell database file not found for '{}'", cell_id);
-        }
+        let (bytes, meta) = if let Some(handle) = self.active_cells.read().await.get(cell_id) {
+            let bytes = handle.backup().await?;
+            let meta = handle.get_meta().await?;
+            (bytes, meta)
+        } else {
+            let db_path = self.cell_db_path(cell_id);
+            if !fs::try_exists(&db_path).await.unwrap_or(false) {
+                bail!("Cell database file not found for '{}'", cell_id);
+            }
+            let db = CellDb::open(cell_id, &db_path, None).await?;
+            db.checkpoint_wal().await?;
+            let meta = db.get_meta().await?;
+            db.close().await;
+            let bytes = fs::read(&db_path).await?;
+            (bytes, meta)
+        };
 
-        // If cell is active, trigger a WAL checkpoint first
-        if let Some(handle) = self.active_cells.read().await.get(cell_id) {
-            let _ = handle.checkpoint_wal().await;
-        }
-
-        let bytes = fs::read(&db_path).await?;
         let blob_key = format!("cells/{}.db", cell_id);
         self.storage.put(&blob_key, bytes).await?;
+
+        let meta_key = format!("cells/{}.meta.json", cell_id);
+        let meta_json = serde_json::to_vec(&meta)?;
+        self.storage.put(&meta_key, meta_json).await?;
+
         info!("Cell '{}' snapshot successfully backed up to '{}'", cell_id, blob_key);
         Ok(())
     }
@@ -144,33 +182,40 @@ impl CellManager {
             active.remove(cell_id)
         };
 
-        if let Some(h) = handle {
-            info!("Evicting cell '{}' from memory", cell_id);
+        if let Some(handle) = handle {
+            // Backup before shutdown
             let _ = self.backup_cell(cell_id).await;
-            h.shutdown().await;
-            let _ = self.storage.release_lease(cell_id, &self.node_id).await;
+            handle.shutdown().await;
         }
+
+        // Release lease
+        self.storage.release_lease(cell_id, &self.node_id).await?;
+        info!("Evicted cell '{}' and released lease on node '{}'", cell_id, self.node_id);
         Ok(())
     }
 
-    /// List all cells on this node (both active in-memory and on-disk).
+    /// List all cells on this node.
     pub async fn list_cells(&self) -> Result<Vec<CellMeta>> {
-        fs::create_dir_all(&self.cells_dir).await?;
-        let mut entries = fs::read_dir(&self.cells_dir).await?;
         let mut results = Vec::new();
 
-        while let Some(entry) = entries.next_entry().await? {
+        let mut read_dir = match fs::read_dir(&self.cells_dir).await {
+            Ok(rd) => rd,
+            Err(_) => return Ok(results),
+        };
+
+        while let Some(entry) = read_dir.next_entry().await? {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("db") {
                 continue;
             }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
 
-            // Check if already in active memory
-            let active_handle = self.active_cells.read().await.get(stem).cloned();
-            if let Some(handle) = active_handle
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
+
+            // If active in memory, query live actor
+            if let Some(handle) = self.active_cells.read().await.get(stem)
                 && let Ok(meta) = handle.get_meta().await
             {
                 results.push(meta);
@@ -189,13 +234,48 @@ impl CellManager {
         Ok(results)
     }
 
-    /// Background task to renew leases for all active in-memory cells.
+    /// Background task to renew leases for all active in-memory cells, fencing cells on failure.
     pub async fn renew_active_leases(&self) {
-        let active = self.active_cells.read().await;
-        for (cell_id, _) in active.iter() {
-            if let Err(e) = self.storage.renew_lease(cell_id, &self.node_id, 60).await {
-                warn!("Failed to renew lease for cell '{}': {}", cell_id, e);
+        let mut to_fence = Vec::new();
+        {
+            let active = self.active_cells.read().await;
+            for (cell_id, handle) in active.iter() {
+                match self.storage.renew_lease(cell_id, &self.node_id, self.lease_ttl_secs).await {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => {
+                        warn!("Lease renewal failed for cell '{}'. Fencing cell to prevent split-brain.", cell_id);
+                        to_fence.push((cell_id.clone(), handle.clone()));
+                    }
+                }
             }
+        }
+
+        if !to_fence.is_empty() {
+            let mut active = self.active_cells.write().await;
+            for (cell_id, handle) in to_fence {
+                active.remove(&cell_id);
+                handle.fence().await;
+            }
+        }
+    }
+
+    /// Evict cells that have been idle for longer than `max_idle`.
+    pub async fn evict_idle_cells(&self, max_idle: std::time::Duration) {
+        let mut to_evict = Vec::new();
+        {
+            let active = self.active_cells.read().await;
+            for (cell_id, handle) in active.iter() {
+                if let Ok(idle) = handle.idle_duration().await
+                    && idle > max_idle
+                {
+                    to_evict.push(cell_id.clone());
+                }
+            }
+        }
+
+        for cell_id in to_evict {
+            info!("Evicting idle cell '{}'", cell_id);
+            let _ = self.evict_cell(&cell_id).await;
         }
     }
 }

@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         info!("📂 Initializing Local Filesystem BlobStore at {:?}", config.storage_dir);
         Arc::new(LocalBlobStore::new(&config.storage_dir))
     };
-    let manager = Arc::new(CellManager::new(&config.data_dir, storage));
+    let manager = Arc::new(CellManager::new(&config.data_dir, storage, config.lease_ttl_secs));
 
     // Background task to periodically renew leases for all active in-memory cells
     let lease_manager = Arc::clone(&manager);
@@ -47,6 +47,16 @@ async fn main() -> Result<()> {
         loop {
             interval.tick().await;
             lease_manager.renew_active_leases().await;
+        }
+    });
+
+    // Background task to evict idle cells from memory
+    let idle_manager = Arc::clone(&manager);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            idle_manager.evict_idle_cells(Duration::from_secs(300)).await;
         }
     });
 

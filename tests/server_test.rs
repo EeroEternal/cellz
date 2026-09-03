@@ -15,7 +15,7 @@ async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {
     let storage_dir = temp_dir.path().join("storage");
 
     let storage = Arc::new(LocalBlobStore::new(&storage_dir));
-    let manager = Arc::new(CellManager::new(&cells_dir, storage));
+    let manager = Arc::new(CellManager::new(&cells_dir, storage, 60));
     let app = create_router(manager);
     (app, temp_dir)
 }

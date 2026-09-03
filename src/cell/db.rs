@@ -518,9 +518,9 @@ impl CellDb {
         Ok(target_seq)
     }
 
-    /// Explicit SQLite WAL checkpoint to flush changes to disk.
+    /// Explicit SQLite WAL checkpoint to flush and truncate WAL changes to disk.
     pub async fn checkpoint_wal(&self) -> Result<()> {
-        sqlx::query("PRAGMA wal_checkpoint(PASSIVE);")
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
             .execute(&self.pool)
             .await?;
         Ok(())

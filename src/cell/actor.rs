@@ -4,7 +4,7 @@ use std::time::Instant;
 use anyhow::Result;
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::cell::db::CellDb;
 use crate::model::event::{EventRecord, Message};
@@ -57,6 +57,13 @@ pub enum ActorMessage {
     },
     CheckpointWal {
         reply: oneshot::Sender<Result<()>>,
+    },
+    Backup {
+        reply: oneshot::Sender<Result<Vec<u8>>>,
+    },
+    Fence,
+    GetIdleDuration {
+        reply: oneshot::Sender<std::time::Duration>,
     },
     Shutdown {
         reply: oneshot::Sender<()>,
@@ -209,6 +216,28 @@ impl CellHandle {
         rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
+    pub async fn backup(&self) -> Result<Vec<u8>> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(ActorMessage::Backup { reply })
+            .await
+            .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
+        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+    }
+
+    pub async fn fence(&self) {
+        let _ = self.tx.send(ActorMessage::Fence).await;
+    }
+
+    pub async fn idle_duration(&self) -> Result<std::time::Duration> {
+        let (reply, rx) = oneshot::channel();
+        self.tx
+            .send(ActorMessage::GetIdleDuration { reply })
+            .await
+            .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
+        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))
+    }
+
     pub async fn shutdown(&self) {
         let (reply, rx) = oneshot::channel();
         if self.tx.send(ActorMessage::Shutdown { reply }).await.is_ok() {
@@ -329,6 +358,23 @@ impl CellActor {
                 ActorMessage::CheckpointWal { reply } => {
                     let res = self.db.checkpoint_wal().await;
                     let _ = reply.send(res);
+                }
+                ActorMessage::Backup { reply } => {
+                    let res = async {
+                        self.db.checkpoint_wal().await?;
+                        tokio::fs::read(self.db.db_path()).await.map_err(Into::into)
+                    }
+                    .await;
+                    let _ = reply.send(res);
+                }
+                ActorMessage::Fence => {
+                    warn!("CellActor [{}] fenced due to lease expiration or takeover", self.cell_id);
+                    let _ = self.db.update_status(CellStatus::Suspended).await;
+                    self.db.close().await;
+                    break;
+                }
+                ActorMessage::GetIdleDuration { reply } => {
+                    let _ = reply.send(self.last_active.elapsed());
                 }
                 ActorMessage::Shutdown { reply } => {
                     info!("CellActor [{}] received shutdown signal", self.cell_id);

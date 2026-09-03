@@ -3,7 +3,7 @@ name = "cellz"
 version = "0.1.0"
 edition = "2024"
 authors = ["Development Team"]
-description = "Copy-in Admin console kit and agent constraints for Rust operator consoles"
+description = "SQLite-per-session, event-sourced state server for AI agents"
 
 [dependencies]
 tokio = { version = "1.43", features = ["full"] }

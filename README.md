@@ -1,7 +1,7 @@
 # cellz
 
-> **Lightweight, Distributed Agent State & Scheduling Daemon**  
-> Inspired by Cloudflare Durable Objects and `denoland/celld`, built in 100% Rust.
+> **SQLite-per-session, event-sourced state server for AI agents**  
+> Language-agnostic state & stream plane with atomic CAS leasing, Cloudflare R2 / S3 durability, and sub-millisecond local commits. Built in 100% Rust.
 
 [![CI](https://github.com/EeroEternal/cellz/actions/workflows/ci.yml/badge.svg)](https://github.com/EeroEternal/cellz/actions)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
@@ -9,19 +9,15 @@
 
 ---
 
-## ⚡ Why cellz?
+## ⚡ Positioning & Comparison with `celld`
 
-Modern AI Coding Agents (such as [Zene](https://github.com/ParaTensor/zene)) face critical state management bottlenecks when scaling from local CLI to distributed multi-user Cloud environments:
+While projects like [denoland/celld](https://github.com/denoland/celld) bring Cloudflare Durable Objects to self-hosted environments by executing JavaScript/TypeScript Workers inside a sandbox, **`cellz` takes a different, agent-focused path**:
 
-1. **Lock Contention in Shared DBs**: Running hundreds of concurrent agent loops with frequent event dual-writes against a single centralized SQLite or Postgres leads to severe write contention.
-2. **Context Growth & Serialization Overhead**: Storing full session histories as monolithic JSON files degrades latency as conversation events accumulate.
-3. **Multi-Node Failover & Brain-Split**: Moving an ongoing Agent turn across workers requires complex lease coordination and distributed snapshotting.
-
-**`cellz` solves this with the "Cell" (Durable Object) architecture:**
-- **Per-Cell Isolated SQLite**: Each agent session is a dedicated Cell backed by its own private SQLite in `WAL` mode. Sessions operate independently with sub-millisecond local commits.
-- **Event Sourcing + Projection**: Monotonic append-only event logs coupled with instant materialized chat views.
-- **S3 / Blob Storage Durability**: Snapshots and distributed single-writer leases managed seamlessly via local filesystem or S3-compatible buckets.
-- **Native Real-Time Mesh**: Built-in Server-Sent Events (SSE) and WebSocket streaming for token generation, tool execution logs, and human-in-the-loop approvals.
+- **Pure State & Stream Plane**: `cellz` does **not** execute user code inside the cell. It is completely language-agnostic, exposing REST, SSE, and WebSocket interfaces so agents written in Rust, Python, TypeScript, or Go can connect instantly.
+- **Agent-Native Primitives**: Built-in event sourcing, message materialization, key-value stores (Todos, Compactions), checkpointing, and branch rewinding.
+- **Atomic Single-Writer CAS Leases**: Prevents split-brain across multiple distributed workers using S3 `PutMode::Create` / `If-Match` ETag conditional writes and atomic OS filesystem locks.
+- **Actor Mailbox Serialization**: Snapshots (`wal_checkpoint(TRUNCATE)`) and state exports are serialized within the cell's actor mailbox, eliminating race gaps between WAL writes and backup reads.
+- **Lossless Realtime Reconnection**: SSE stream supports `Last-Event-ID` and `?since=` query parameters to seamlessly replay historical missed events before transitioning to live broadcast.
 
 ---
 
@@ -31,7 +27,7 @@ Modern AI Coding Agents (such as [Zene](https://github.com/ParaTensor/zene)) fac
                ┌────────────────────────────────────────────────────────┐
                │              Client / Web UI / Coding Agent            │
                └──────────────────────────┬─────────────────────────────┘
-                                          │ HTTP / SSE / WebSocket
+                                          │ HTTP / SSE (Last-Event-ID) / WS
                                           ▼
                       ┌────────────────────────────────────────┐
                       │                 cellz                  │
@@ -43,6 +39,7 @@ Modern AI Coding Agents (such as [Zene](https://github.com/ParaTensor/zene)) fac
                       │  │  - Materialized Message Projection│  │
                       │  │  - Key-Value State Machine        │  │
                       │  │  - Dedicated SQLite (WAL Mode)    │  │
+                      │  │  - Mailbox-Serialized Snapshots   │  │
                       │  └────────────────┬─────────────────┘  │
                       └───────────────────┼────────────────────┘
                                           │
@@ -50,8 +47,8 @@ Modern AI Coding Agents (such as [Zene](https://github.com/ParaTensor/zene)) fac
                      ▼                                         ▼
         ┌─────────────────────────┐               ┌─────────────────────────┐
         │  Local Cell SQLite DBs  │               │   Blob Storage Engine   │
-        │   `data/cells/{id}.db`  │               │ (Local FS / S3 Storage) │
-        │  (Microsecond Latency)  │               │  (Snapshots & Leases)   │
+        │   `data/cells/{id}.db`  │               │ (Local FS / S3 / R2)    │
+        │  (Microsecond Latency)  │               │ (CAS Leases & Snapshots)│
         └─────────────────────────┘               └─────────────────────────┘
 ```
 
@@ -64,7 +61,15 @@ For in-depth architectural details, refer to [Architecture Specification](docs/a
 ### 1. Run the Daemon
 
 ```bash
-# Build and run with default settings (port 8080)
+# Local filesystem storage
+cargo run --release
+
+# Or with Cloudflare R2 / S3
+export CELLZ_STORAGE_BACKEND="s3"
+export CELLZ_S3_ENDPOINT="https://<account_id>.r2.cloudflarestorage.com"
+export CELLZ_S3_BUCKET="zene-cells"
+export CELLZ_S3_ACCESS_KEY_ID="<your_key>"
+export CELLZ_S3_SECRET_ACCESS_KEY="<your_secret>"
 cargo run --release
 ```
 
@@ -77,8 +82,14 @@ cargo run --release
 | `CELLZ_HOST` | `0.0.0.0` | Bind IP address |
 | `CELLZ_PORT` | `8080` | Listen port |
 | `CELLZ_DATA_DIR` | `./data/cells` | Local SQLite databases storage path |
-| `CELLZ_STORAGE_DIR` | `./data/storage` | Snapshot backup & lease directory |
+| `CELLZ_STORAGE_DIR` | `./data/storage` | Snapshot backup & lease directory (local backend) |
 | `CELLZ_LEASE_TTL` | `60` | Lease lock expiry duration in seconds |
+| `CELLZ_STORAGE_BACKEND` | `local` | Storage backend (`local` or `s3`) |
+| `CELLZ_S3_ENDPOINT` | None | S3 / Cloudflare R2 endpoint URL |
+| `CELLZ_S3_BUCKET` | None | S3 / Cloudflare R2 bucket name |
+| `CELLZ_S3_ACCESS_KEY_ID`| None | S3 Access Key ID |
+| `CELLZ_S3_SECRET_ACCESS_KEY` | None | S3 Secret Access Key |
+| `CELLZ_S3_REGION` | `auto` | S3 Region (`auto` for Cloudflare R2) |
 
 ### 3. Create a Session & Append Events
 

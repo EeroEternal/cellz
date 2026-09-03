@@ -2,8 +2,8 @@ use std::convert::Infallible;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use futures::{SinkExt, StreamExt};
@@ -12,11 +12,13 @@ use serde_json::json;
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::{debug, info};
 
-use crate::api::handlers::AppState;
+use crate::api::handlers::{AppState, EventsQuery};
 
 pub async fn sse_events_stream(
     State(state): State<AppState>,
     Path(cell_id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<EventsQuery>,
 ) -> impl IntoResponse {
     let handle = match state.manager.get_or_activate(&cell_id).await {
         Ok(h) => h,
@@ -29,16 +31,58 @@ pub async fn sse_events_stream(
         }
     };
 
+    // Extract reconnection sequence from Last-Event-ID header or ?since= query parameter
+    let since_seq = headers
+        .get("last-event-id")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.parse::<i64>().ok())
+        .or(query.since);
+
+    // 1. Subscribe to live broadcast before querying historical events to eliminate race gap
     let rx = handle.subscribe();
-    let stream = BroadcastStream::new(rx).filter_map(|res| async move {
-        match res {
-            Ok(event) => match serde_json::to_string(&event) {
-                Ok(data) => Some(Ok::<Event, Infallible>(Event::default().data(data))),
+
+    // 2. Query historical events if since_seq is provided
+    let (history, max_seen_seq) = if let Some(since) = since_seq {
+        let events = handle.get_events(Some(since), None).await.unwrap_or_default();
+        let max = events.last().map(|e| e.sequence).unwrap_or(since);
+        (events, max)
+    } else {
+        (Vec::new(), 0)
+    };
+
+    let history_stream = tokio_stream::iter(history.into_iter().map(|event| {
+        let data = serde_json::to_string(&event).unwrap_or_default();
+        Ok::<Event, Infallible>(
+            Event::default()
+                .id(event.sequence.to_string())
+                .event(&event.event_type)
+                .data(data),
+        )
+    }));
+
+    // 3. Live stream with deduplication filter against replayed sequence
+    let live_stream = BroadcastStream::new(rx).filter_map(move |res| {
+        let min_seq = max_seen_seq;
+        async move {
+            match res {
+                Ok(event) => {
+                    if event.sequence <= min_seq {
+                        return None;
+                    }
+                    let data = serde_json::to_string(&event).ok()?;
+                    Some(Ok::<Event, Infallible>(
+                        Event::default()
+                            .id(event.sequence.to_string())
+                            .event(&event.event_type)
+                            .data(data),
+                    ))
+                }
                 Err(_) => None,
-            },
-            Err(_) => None,
+            }
         }
     });
+
+    let stream = history_stream.chain(live_stream);
 
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("keep-alive"))

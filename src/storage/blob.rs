@@ -86,29 +86,44 @@ impl BlobStore for LocalBlobStore {
     }
 
     async fn acquire_lease(&self, key: &str, holder: &str, ttl_secs: u64) -> Result<bool> {
+        use tokio::io::AsyncWriteExt;
         let l_path = self.lease_path(key);
         if let Some(parent) = l_path.parent() {
             fs::create_dir_all(parent).await?;
         }
 
         let now = Utc::now();
-        let existing_lease = fs::read(&l_path)
-            .await
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<LeaseRecord>(&bytes).ok());
-        if let Some(record) = existing_lease
-            && record.expires_at > now
-            && record.holder != holder
-        {
-            // Lease held by another node
-            return Ok(false);
-        }
-
         let record = LeaseRecord {
             holder: holder.to_string(),
             expires_at: now + Duration::seconds(ttl_secs as i64),
         };
         let data = serde_json::to_vec(&record)?;
+
+        // 1. Try atomic create first (O_CREAT | O_EXCL)
+        let open_res = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&l_path)
+            .await;
+
+        if let Ok(mut file) = open_res {
+            file.write_all(&data).await?;
+            file.flush().await?;
+            return Ok(true);
+        }
+
+        // 2. File already exists. Check if expired or held by same holder.
+        let existing_bytes = fs::read(&l_path).await.ok();
+        let existing_lease = existing_bytes
+            .and_then(|bytes| serde_json::from_slice::<LeaseRecord>(&bytes).ok());
+
+        if let Some(record) = existing_lease
+            && record.expires_at > now
+            && record.holder != holder
+        {
+            return Ok(false);
+        }
+
         let temp_path = l_path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
         fs::write(&temp_path, data).await?;
         fs::rename(&temp_path, &l_path).await?;
@@ -236,47 +251,85 @@ impl BlobStore for S3BlobStore {
     }
 
     async fn acquire_lease(&self, key: &str, holder: &str, ttl_secs: u64) -> Result<bool> {
-        use object_store::ObjectStore;
+        use object_store::{ObjectStore, PutMode, PutOptions, UpdateVersion};
         let lp = Self::lease_obj_path(key);
         let now = Utc::now();
-
-        let existing_lease: Option<LeaseRecord> = match self.store.get(&lp).await {
-            Ok(res) => {
-                let bytes = res.bytes().await.ok();
-                bytes.and_then(|b| serde_json::from_slice(&b).ok())
-            }
-            Err(_) => None,
-        };
-
-        if let Some(ref record) = existing_lease
-            && record.expires_at > now
-            && record.holder != holder
-        {
-            return Ok(false);
-        }
 
         let record = LeaseRecord {
             holder: holder.to_string(),
             expires_at: now + Duration::seconds(ttl_secs as i64),
         };
         let data = serde_json::to_vec(&record)?;
-        self.store.put(&lp, data.into()).await?;
-        Ok(true)
+
+        // 1. Try atomic create first (If-None-Match: *)
+        let create_opts = PutOptions {
+            mode: PutMode::Create,
+            ..Default::default()
+        };
+
+        match self.store.put_opts(&lp, data.clone().into(), create_opts).await {
+            Ok(_) => return Ok(true),
+            Err(object_store::Error::AlreadyExists { .. }) => {}
+            Err(e) => return Err(e.into()),
+        }
+
+        // 2. Object already exists. Read current lease with ETag for CAS update.
+        let get_res = match self.store.get(&lp).await {
+            Ok(res) => res,
+            Err(object_store::Error::NotFound { .. }) => return Ok(false),
+            Err(e) => return Err(e.into()),
+        };
+
+        let e_tag = get_res.meta.e_tag.clone();
+        let bytes = get_res.bytes().await?;
+        let existing: LeaseRecord = match serde_json::from_slice(&bytes) {
+            Ok(r) => r,
+            Err(_) => return Ok(false),
+        };
+
+        // If held by someone else and still valid -> deny
+        if existing.expires_at > now && existing.holder != holder {
+            return Ok(false);
+        }
+
+        // Lease expired or held by same holder: atomically update using ETag
+        let update_opts = PutOptions {
+            mode: PutMode::Update(UpdateVersion {
+                e_tag,
+                version: None,
+            }),
+            ..Default::default()
+        };
+
+        match self.store.put_opts(&lp, data.into(), update_opts).await {
+            Ok(_) => Ok(true),
+            Err(object_store::Error::Precondition { .. }) => {
+                // Another node raced and won
+                Ok(false)
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn renew_lease(&self, key: &str, holder: &str, ttl_secs: u64) -> Result<bool> {
-        use object_store::ObjectStore;
+        use object_store::{ObjectStore, PutMode, PutOptions, UpdateVersion};
         let lp = Self::lease_obj_path(key);
         let now = Utc::now();
 
-        let Ok(res) = self.store.get(&lp).await else {
-            return Ok(false);
+        let get_res = match self.store.get(&lp).await {
+            Ok(res) => res,
+            Err(_) => return Ok(false),
         };
-        let Ok(bytes) = res.bytes().await else {
-            return Ok(false);
+
+        let e_tag = get_res.meta.e_tag.clone();
+        let bytes = match get_res.bytes().await {
+            Ok(b) => b,
+            Err(_) => return Ok(false),
         };
-        let Ok(record) = serde_json::from_slice::<LeaseRecord>(&bytes) else {
-            return Ok(false);
+
+        let record: LeaseRecord = match serde_json::from_slice(&bytes) {
+            Ok(r) => r,
+            Err(_) => return Ok(false),
         };
 
         if record.holder != holder || record.expires_at <= now {
@@ -288,8 +341,20 @@ impl BlobStore for S3BlobStore {
             expires_at: now + Duration::seconds(ttl_secs as i64),
         };
         let data = serde_json::to_vec(&renewed)?;
-        self.store.put(&lp, data.into()).await?;
-        Ok(true)
+
+        let update_opts = PutOptions {
+            mode: PutMode::Update(UpdateVersion {
+                e_tag,
+                version: None,
+            }),
+            ..Default::default()
+        };
+
+        match self.store.put_opts(&lp, data.into(), update_opts).await {
+            Ok(_) => Ok(true),
+            Err(object_store::Error::Precondition { .. }) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn release_lease(&self, key: &str, holder: &str) -> Result<()> {
