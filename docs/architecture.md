@@ -1,33 +1,22 @@
-# Architecture & Domain Boundaries
+# cellz Architecture Design
 
-This document defines the system architectural model, core component boundaries, and data flow principles.
+`cellz` is a lightweight, distributed Agent State & Scheduling Daemon inspired by Cloudflare Durable Objects and `denoland/celld`, built in 100% Rust.
 
-## 1. Architecture Overview
+## Core Pillars
 
-```text
-[ Client / Admin Console ]
-           │
-           ▼
-[ Axum HTTP / WS Transport Layer ]
-           │
-           ▼
-[ Domain Layer / Dispatcher / Service Logic ]
-           │
-           ▼
-[ Storage Layer (Sqlx / Cache) ]
-```
+1. **Cell-as-an-Actor (Per-Session Isolation)**
+   - Every Agent session is mapped to a dedicated **Cell**.
+   - Each Cell maintains its own private SQLite database in WAL mode (`data/cells/<cell_id>.db`).
+   - Zero lock contention between different agent sessions.
 
-## 2. Layering & Invocation Rules
+2. **Event Sourcing & Projection**
+   - Every interaction (user prompt, LLM chunk, tool call, tool result, approval request, compaction, fork) is recorded as an immutable, sequenced event.
+   - Live state (messages, KV state, active turns) is projected in memory and queryable via SQL.
 
-1. **Transport Layer (`src/server.rs`)**:
-   - Handles route mounting, middleware attachment (CORS, Trace, Auth), and HTTP serialization.
-   - Strictly prohibited from containing database queries and core business logic.
-2. **Domain Service Layer**:
-   - Encapsulates business entities, state transitions, and scheduling algorithms.
-3. **Storage Layer**:
-   - Uses `sqlx` for type-safe asynchronous SQL interactions.
-   - Database schema changes are strictly driven by `migrations/NNN_*.sql`.
+3. **Pluggable Durability (Blob Storage)**
+   - `BlobStore` abstraction: Local Filesystem (zero external dependency) and S3-compatible object storage (AWS S3, MinIO, Garage, Cloudflare R2).
+   - Automated checkpoint snapshotting and single-writer lease arbitration.
 
-## 3. Plugin-First Principle
-
-All custom business adaptations (such as dynamic headers, auth decoration, vendor protocol adaptors, and data masking) must be implemented as modular middleware or plugins, never hardcoded into the core data plane.
+4. **Real-time Observability & Control**
+   - Native Server-Sent Events (SSE) and WebSocket support for token streaming and real-time tool execution tracking.
+   - REST API for lifecycle management (create, query, event append, checkpoint, rewind, evict).
