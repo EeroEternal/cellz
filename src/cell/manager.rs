@@ -161,24 +161,28 @@ impl CellManager {
 
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("db") {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    // Check if already in active memory
-                    if let Some(handle) = self.active_cells.read().await.get(stem) {
-                        if let Ok(meta) = handle.get_meta().await {
-                            results.push(meta);
-                            continue;
-                        }
-                    }
+            if path.extension().and_then(|e| e.to_str()) != Some("db") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
 
-                    // Otherwise query read-only metadata from sqlite file
-                    if let Ok(db) = CellDb::open(stem, &path, None).await {
-                        if let Ok(meta) = db.get_meta().await {
-                            results.push(meta);
-                        }
-                        db.close().await;
-                    }
+            // Check if already in active memory
+            let active_handle = self.active_cells.read().await.get(stem).cloned();
+            if let Some(handle) = active_handle
+                && let Ok(meta) = handle.get_meta().await
+            {
+                results.push(meta);
+                continue;
+            }
+
+            // Otherwise query read-only metadata from sqlite file
+            if let Ok(db) = CellDb::open(stem, &path, None).await {
+                if let Ok(meta) = db.get_meta().await {
+                    results.push(meta);
                 }
+                db.close().await;
             }
         }
 

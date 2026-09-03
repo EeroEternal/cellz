@@ -92,15 +92,16 @@ impl BlobStore for LocalBlobStore {
         }
 
         let now = Utc::now();
-        if fs::try_exists(&l_path).await.unwrap_or(false) {
-            if let Ok(bytes) = fs::read(&l_path).await {
-                if let Ok(record) = serde_json::from_slice::<LeaseRecord>(&bytes) {
-                    if record.expires_at > now && record.holder != holder {
-                        // Lease held by another node
-                        return Ok(false);
-                    }
-                }
-            }
+        let existing_lease = fs::read(&l_path)
+            .await
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<LeaseRecord>(&bytes).ok());
+        if let Some(record) = existing_lease
+            && record.expires_at > now
+            && record.holder != holder
+        {
+            // Lease held by another node
+            return Ok(false);
         }
 
         let record = LeaseRecord {
@@ -117,11 +118,10 @@ impl BlobStore for LocalBlobStore {
     async fn renew_lease(&self, key: &str, holder: &str, ttl_secs: u64) -> Result<bool> {
         let l_path = self.lease_path(key);
         let now = Utc::now();
-        if !fs::try_exists(&l_path).await.unwrap_or(false) {
+        let Ok(bytes) = fs::read(&l_path).await else {
             return Ok(false);
-        }
+        };
 
-        let bytes = fs::read(&l_path).await?;
         let record: LeaseRecord = serde_json::from_slice(&bytes)?;
         if record.holder != holder || record.expires_at <= now {
             return Ok(false);
@@ -140,14 +140,14 @@ impl BlobStore for LocalBlobStore {
 
     async fn release_lease(&self, key: &str, holder: &str) -> Result<()> {
         let l_path = self.lease_path(key);
-        if fs::try_exists(&l_path).await.unwrap_or(false) {
-            if let Ok(bytes) = fs::read(&l_path).await {
-                if let Ok(record) = serde_json::from_slice::<LeaseRecord>(&bytes) {
-                    if record.holder == holder {
-                        fs::remove_file(&l_path).await.ok();
-                    }
-                }
-            }
+        let existing_lease = fs::read(&l_path)
+            .await
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<LeaseRecord>(&bytes).ok());
+        if let Some(record) = existing_lease
+            && record.holder == holder
+        {
+            fs::remove_file(&l_path).await.ok();
         }
         Ok(())
     }

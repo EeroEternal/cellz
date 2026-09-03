@@ -82,10 +82,11 @@ async fn handle_socket(socket: WebSocket, handle: crate::cell::CellHandle) {
     let cell_id_clone = handle.cell_id.clone();
     let mut send_task = tokio::spawn(async move {
         while let Ok(event) = event_rx.recv().await {
-            if let Ok(msg_str) = serde_json::to_string(&json!({ "type": "event", "data": event })) {
-                if sender.send(Message::Text(msg_str.into())).await.is_err() {
-                    break;
-                }
+            let Ok(msg_str) = serde_json::to_string(&json!({ "type": "event", "data": event })) else {
+                continue;
+            };
+            if sender.send(Message::Text(msg_str.into())).await.is_err() {
+                break;
             }
         }
         debug!("WebSocket outgoing task ended for cell '{}'", cell_id_clone);
