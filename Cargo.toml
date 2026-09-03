@@ -1,0 +1,26 @@
+[package]
+name = "cellz"
+version = "0.1.0"
+edition = "2024"
+authors = ["Development Team"]
+description = "Copy-in Admin console kit and agent constraints for Rust operator consoles"
+
+[dependencies]
+tokio = { version = "1.43", features = ["full"] }
+axum = { version = "0.8", features = ["json", "ws", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "sqlite", "chrono", "uuid", "migrate"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.12", features = ["v4", "serde"] }
+anyhow = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+http-body-util = "0.1"
