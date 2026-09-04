@@ -33,6 +33,9 @@ jobs:
       - name: Run Tests
         run: cargo test --workspace --all-features
 
+      - name: Check default features (daemon bin, no s3)
+        run: cargo check --all-targets
+
       - name: Check core (no default features)
         run: cargo check --no-default-features --tests
 

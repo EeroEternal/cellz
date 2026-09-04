@@ -39,9 +39,10 @@ async fn main() -> Result<()> {
             }
             #[cfg(not(feature = "s3"))]
             {
-                anyhow::bail!(
+                return Err(cellz::error::Error::Config(
                     "CELLZ_STORAGE_BACKEND=s3 requires the `s3` cargo feature (rebuild with `--features s3`)"
-                );
+                        .into(),
+                ));
             }
         }
         _ => {
