@@ -53,8 +53,6 @@
 //! cellz = { version = "0.2", features = ["s3"] }
 //! ```
 
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
-
 pub mod cell;
 pub mod config;
 pub mod error;

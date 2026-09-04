@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Removed the unused console-kit Admin UI kit (`admin/`, `docs/design.md`) from the repository. It was never part of the published crate.
+## 0.2.1 — 2026-09-04
+
+- Removed `#![feature(doc_auto_cfg)]`, which nightly rustdoc (docs.rs) has dropped. The 0.2.0 docs.rs build failed with E0557.
+- Removed the unused console-kit Admin UI kit from the git repository (never part of the published crate).
 
 ## 0.2.0 — 2026-09-04
 
