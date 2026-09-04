@@ -25,15 +25,14 @@ git status
 
 # 跑满门禁
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --workspace
-
-# 前端构建验证 (如适用)
-cd admin && npm run build && cd ..
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo check --all-targets
+cargo check --no-default-features --tests
 ```
 
 ### 第 2 步：发版三查 (Three-Point Verification)
-1. **版本号一致性**：确认 `Cargo.toml`（以及 `admin/package.json`）中的版本号已正确自增（如 `v0.1.0` -> `v0.2.0`）。
+1. **版本号一致性**：确认 `Cargo.toml` 中的版本号已正确自增（如 `v0.1.0` -> `v0.2.0`）。
 2. **变更日志 (Changelog)**：确认 `CHANGELOG.md` 或相关发布日志已记录本次版本的核心特性与破坏性变更。
 3. **敏感信息与构建物扫描**：确认无私有密钥、`.env`、临时调试日志或未编译产物被包含。
 

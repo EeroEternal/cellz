@@ -19,12 +19,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo check --all-targets
 cargo check --no-default-features --tests
-bash scripts/check_ui_stack.sh
-bash scripts/check_admin_nav.sh
-(cd admin && npx tsc -b --noEmit && npm run lint)
 ```
 
-UI 规范改动需确保符合 `docs/design.md`；发版与打 Tag 前，转入 skill
+发版与打 Tag 前，转入 skill
 [`release`](../release/SKILL.md) 执行完整发版流程（三查 + 人工批准硬停）。
 
 ## 适用范围与纪律 (Scope & Discipline)

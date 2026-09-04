@@ -193,7 +193,6 @@ cargo clippy --all-targets --all-features -- -D warnings
 - [Architecture Specification](docs/architecture.md): Per-cell SQLite, dedicated actor thread, cargo features, and lease management.
 - [API Reference](docs/api.md): Complete REST, SSE, and WebSocket endpoints specification.
 - [Changelog](CHANGELOG.md): Released crate versions.
-- [Admin UI Kit](admin/README.md): Admin console UI framework and component catalog.
 
 ---
 

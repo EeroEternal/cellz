@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Removed the unused console-kit Admin UI kit (`admin/`, `docs/design.md`) from the repository. It was never part of the published crate.
+
 ## 0.2.0 — 2026-09-04
 
 Embed- and compile-size focused release. The public HTTP API is unchanged; the Rust crate surface and default install are not.

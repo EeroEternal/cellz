@@ -5,8 +5,7 @@ This document describes the structure and lifecycle of the `docs/` tree.
 ## Directory Structure
 
 - `docs/architecture.md`: High-level system architecture and domain models.
-- `docs/design.md`: Single source of truth for UI/UX design specifications.
-- `docs/design/`: Detailed design chapters (tokens, colors, typography, layout, components).
+- `docs/api.md`: HTTP / SSE / WebSocket API reference.
 - `docs/ai/agents/`: Engineering guidelines, commit standards, and agent governance.
 
 ## Document Lifecycle Discipline

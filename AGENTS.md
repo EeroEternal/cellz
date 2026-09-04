@@ -9,7 +9,7 @@ This document serves as the **high-density, lightweight entry point (attention s
 | **Standing Constraints** | Inviolable rules across all tasks | This file ("Always Active"); expanded in [`docs/ai/agents/`](docs/ai/agents/) |
 | **Reusable Workflows** | Domain-specific procedures & validation commands (Token Relief Valve) | `.agents/skills/*/SKILL.md` (Authoritative) |
 | **Vendor/Env Bridges** | Tooling or Cloud VM nuances | [`docs/ai/`](docs/ai/) (No root bifurcation allowed) |
-| **Domain Specs** | UI / Architecture / Data abstractions | [`docs/design.md`](docs/design.md) + [`docs/architecture.md`](docs/architecture.md) |
+| **Domain Specs** | Architecture / Data abstractions | [`docs/architecture.md`](docs/architecture.md) |
 
 - **Token Budget & Zero-Sum Updates**: As a resident system prompt weight, this file has a strict hard limit of **80 lines / 1200 Tokens**. Near the limit, follow the **zero-sum rule (add one, remove one)**.
 - **Anti-Anecdote & Batch Threshold**: Never add global rules based on isolated single-session mistakes. Rules must appear in **≥ 2 independent session transcripts** and be refined via skill [`promote-lesson`](.agents/skills/promote-lesson/SKILL.md) with explicit human review.
@@ -18,8 +18,6 @@ This document serves as the **high-density, lightweight entry point (attention s
 
 | Task Signal | Required Reading |
 | --- | --- |
-| Any visible page / report / landing / HTML / Admin UI | skill [`admin-ui-change`](.agents/skills/admin-ui-change/SKILL.md) → [`docs/design.md`](docs/design.md); details in [`ui-entry.md`](docs/ai/agents/ui-entry.md) |
-| Admin domain modules / API contract tiering | skill [`admin-domain-resource`](.agents/skills/admin-domain-resource/SKILL.md) |
 | `git stash` operations | skill [`git-stash-safe`](.agents/skills/git-stash-safe/SKILL.md) |
 | Adding SQL migrations (`migrations/NNN_*.sql`) | skill [`add-sql-migration`](.agents/skills/add-sql-migration/SKILL.md) |
 | Writing design docs in `docs/` / DDL / Mermaid | skill [`verify-design-doc`](.agents/skills/verify-design-doc/SKILL.md) |
@@ -36,12 +34,9 @@ This document serves as the **high-density, lightweight entry point (attention s
 2. **Zero Hallucination Code**: Every definition must have callers; every cache field must have a store policy; metrics must track both success and failure; every `TODO` must reference an issue. Design docs must never cite skeleton-only features as existing capabilities.
 3. **Safe Stash**: Honest stash naming; `git diff --stat` before stash; `cargo check --tests` required after pop; never stash `Cargo.toml`, `Cargo.lock`, or build scripts.
 4. **Release Guardrail**: Explain outcomes to users after local closed-loop verification; **merging to main or creating release tags is strictly prohibited without explicit human approval**.
-5. **UI stack + viewport**: Product UI is the in-repo React kit (`admin/` or `frontend/`). **Never** ship parallel HTML/JS pages. Dialogs `max-h-[85vh]` + `overflow-y-auto`. No casual subtitles. Global config only on Settings.
-6. **Admin i18n & Linguistic Purity**: All user-visible copy must use `t('namespace.key')` and be written symmetrically to `zh.ts` and `en.ts`. Mixed languages are strictly prohibited.
-7. **Sorting & Search Clarity**: Entity sorting options must explicitly indicate direction (e.g., "Created (New → Old)"); search placeholder text must truthfully state searchable fields.
-8. **Core Data Plane vs. Plugin Boundary**: Custom business logic (headers, auth decoration, masking, session tracking) **must be implemented as Plugins/Middleware**, never hardcoded into the core data pipeline.
-9. **Release Promoter Process**: Tagging and releasing must follow skill [`release`](.agents/skills/release/SKILL.md) (full local gate re-run → multi-point check → human approval hard stop → deployment verification).
-10. **Pre-push Local Quality Gate**: Never use CI as a local sandbox; run full local quality gates (fmt, clippy, tests, admin tsc/build) via skill [`pre-push-local-gates`](.agents/skills/pre-push-local-gates/SKILL.md) before pushing.
+5. **Core Data Plane vs. Plugin Boundary**: Custom business logic (headers, auth decoration, masking, session tracking) **must be implemented as Plugins/Middleware**, never hardcoded into the core data pipeline.
+6. **Release Promoter Process**: Tagging and releasing must follow skill [`release`](.agents/skills/release/SKILL.md) (full local gate re-run → multi-point check → human approval hard stop → deployment verification).
+7. **Pre-push Local Quality Gate**: Never use CI as a local sandbox; run full local quality gates (fmt, clippy, tests) via skill [`pre-push-local-gates`](.agents/skills/pre-push-local-gates/SKILL.md) before pushing.
 
 ## Skills Index
 
@@ -50,8 +45,6 @@ Authoritative skills are located under `.agents/skills/`.
 - [`git-stash-safe`](.agents/skills/git-stash-safe/SKILL.md)
 - [`add-sql-migration`](.agents/skills/add-sql-migration/SKILL.md)
 - [`promote-lesson`](.agents/skills/promote-lesson/SKILL.md)
-- [`admin-ui-change`](.agents/skills/admin-ui-change/SKILL.md)
-- [`admin-domain-resource`](.agents/skills/admin-domain-resource/SKILL.md)
 - [`verify-design-doc`](.agents/skills/verify-design-doc/SKILL.md)
 - [`pre-push-local-gates`](.agents/skills/pre-push-local-gates/SKILL.md)
 - [`release`](.agents/skills/release/SKILL.md)

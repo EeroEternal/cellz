@@ -15,11 +15,7 @@ categories = ["web-programming", "database", "asynchronous"]
 exclude = [
     "/.agents/",
     "/.github/",
-    "/admin/",
     "/docs/ai/",
-    "/docs/design/",
-    "/docs/design.md",
-    "/scripts/",
     "/AGENTS.md",
 ]
 
