@@ -2,8 +2,38 @@
 name = "cellz"
 version = "0.1.0"
 edition = "2024"
-authors = ["Development Team"]
+rust-version = "1.85"
+authors = ["eero <songmqq@proton.me>"]
 description = "SQLite-per-session, event-sourced state server for AI agents"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/EeroEternal/cellz"
+homepage = "https://github.com/EeroEternal/cellz"
+documentation = "https://docs.rs/cellz"
+keywords = ["ai-agents", "sqlite", "event-sourcing", "sse", "durable-objects"]
+categories = ["web-programming", "database", "asynchronous"]
+exclude = [
+    "/.agents/",
+    "/.github/",
+    "/admin/",
+    "/docs/ai/",
+    "/docs/design/",
+    "/docs/design.md",
+    "/scripts/",
+    "/AGENTS.md",
+]
+
+[lib]
+name = "cellz"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cellz"
+path = "src/main.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 tokio = { version = "1.43", features = ["full"] }

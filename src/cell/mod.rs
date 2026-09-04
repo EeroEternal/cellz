@@ -1,3 +1,5 @@
+//! Per-cell actor, SQLite store, and activation manager.
+
 pub mod actor;
 pub mod db;
 pub mod manager;

@@ -1,3 +1,5 @@
+//! Request/response and event-sourcing data models.
+
 pub mod event;
 pub mod state;
 

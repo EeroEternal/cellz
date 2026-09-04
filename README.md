@@ -4,7 +4,9 @@
 > Language-agnostic state & stream plane with atomic CAS leasing, Cloudflare R2 / S3 durability, and sub-millisecond local commits. Built in 100% Rust.
 
 [![CI](https://github.com/EeroEternal/cellz/actions/workflows/ci.yml/badge.svg)](https://github.com/EeroEternal/cellz/actions)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
+[![crates.io](https://img.shields.io/crates/v/cellz.svg)](https://crates.io/crates/cellz)
+[![docs.rs](https://docs.rs/cellz/badge.svg)](https://docs.rs/cellz)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](Cargo.toml)
 
 ---
@@ -58,7 +60,38 @@ For in-depth architectural details, refer to [Architecture Specification](docs/a
 
 ## 🚀 Quick Start
 
-### 1. Run the Daemon
+### Install from crates.io
+
+```bash
+cargo install cellz
+cellz
+```
+
+Embed the Axum router in your own process:
+
+```toml
+[dependencies]
+cellz = "0.1"
+```
+
+```rust
+use std::sync::Arc;
+use cellz::cell::CellManager;
+use cellz::config::Config;
+use cellz::server::create_router;
+use cellz::storage::LocalBlobStore;
+
+let config = Config::default();
+let storage = Arc::new(LocalBlobStore::new(&config.storage_dir));
+let manager = Arc::new(CellManager::new(
+    &config.data_dir,
+    storage,
+    config.lease_ttl_secs,
+));
+let app = create_router(manager);
+```
+
+### 1. Run the Daemon from source
 
 ```bash
 # Local filesystem storage
@@ -145,4 +178,9 @@ cargo clippy --all-targets -- -D warnings
 
 ## 📄 License
 
-Apache-2.0 / MIT
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.

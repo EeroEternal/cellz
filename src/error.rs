@@ -7,6 +7,7 @@ use serde_json::json;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Crate-level error returned by the cellz library and HTTP handlers.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Database error: {0}")]

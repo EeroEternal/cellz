@@ -1,19 +1,22 @@
+//! HTTP router assembly for the cellz daemon and embeddable library.
+
 use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::api::handlers::{
-    append_event, append_events_batch, backup_cell, create_cell, create_checkpoint, evict_cell,
-    export_cell, get_cell, get_events, get_messages, list_cells, list_kv, restore_checkpoint,
-    set_kv, AppState,
+    AppState, append_event, append_events_batch, backup_cell, create_cell, create_checkpoint,
+    evict_cell, export_cell, get_cell, get_events, get_messages, list_cells, list_kv,
+    restore_checkpoint, set_kv,
 };
 use crate::api::ws::{sse_events_stream, ws_cell_handler};
 use crate::cell::CellManager;
 
+/// Build the Axum router that exposes the cellz HTTP, SSE, and WebSocket API.
 pub fn create_router(manager: Arc<CellManager>) -> Router {
     let state = AppState { manager };
 
@@ -21,7 +24,10 @@ pub fn create_router(manager: Arc<CellManager>) -> Router {
         .route("/health", get(health_check))
         .route("/api/v1/cells", get(list_cells).post(create_cell))
         .route("/api/v1/cells/{id}", get(get_cell))
-        .route("/api/v1/cells/{id}/events", get(get_events).post(append_event))
+        .route(
+            "/api/v1/cells/{id}/events",
+            get(get_events).post(append_event),
+        )
         .route("/api/v1/cells/{id}/events/batch", post(append_events_batch))
         .route("/api/v1/cells/{id}/export", get(export_cell))
         .route("/api/v1/cells/{id}/messages", get(get_messages))

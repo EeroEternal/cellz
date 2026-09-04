@@ -1,6 +1,7 @@
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
+/// Runtime configuration loaded from `CELLZ_*` environment variables.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub host: String,
