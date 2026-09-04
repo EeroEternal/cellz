@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use tokio::fs;
 
 #[async_trait]
@@ -114,8 +114,8 @@ impl BlobStore for LocalBlobStore {
 
         // 2. File already exists. Check if expired or held by same holder.
         let existing_bytes = fs::read(&l_path).await.ok();
-        let existing_lease = existing_bytes
-            .and_then(|bytes| serde_json::from_slice::<LeaseRecord>(&bytes).ok());
+        let existing_lease =
+            existing_bytes.and_then(|bytes| serde_json::from_slice::<LeaseRecord>(&bytes).ok());
 
         if let Some(record) = existing_lease
             && record.expires_at > now
@@ -169,11 +169,13 @@ impl BlobStore for LocalBlobStore {
 }
 
 /// S3 / Cloudflare R2 implementation of BlobStore.
+#[cfg(feature = "s3")]
 #[derive(Debug)]
 pub struct S3BlobStore {
     store: std::sync::Arc<object_store::aws::AmazonS3>,
 }
 
+#[cfg(feature = "s3")]
 impl S3BlobStore {
     pub fn new(
         endpoint: &str,
@@ -206,6 +208,7 @@ impl S3BlobStore {
     }
 }
 
+#[cfg(feature = "s3")]
 #[async_trait]
 impl BlobStore for S3BlobStore {
     async fn get(&self, path: &str) -> Result<Vec<u8>> {
@@ -216,7 +219,10 @@ impl BlobStore for S3BlobStore {
             .get(&op)
             .await
             .with_context(|| format!("Failed to fetch S3 object at {}", path))?;
-        let bytes = res.bytes().await.context("Failed to stream S3 object bytes")?;
+        let bytes = res
+            .bytes()
+            .await
+            .context("Failed to stream S3 object bytes")?;
         Ok(bytes.to_vec())
     }
 
@@ -267,7 +273,11 @@ impl BlobStore for S3BlobStore {
             ..Default::default()
         };
 
-        match self.store.put_opts(&lp, data.clone().into(), create_opts).await {
+        match self
+            .store
+            .put_opts(&lp, data.clone().into(), create_opts)
+            .await
+        {
             Ok(_) => return Ok(true),
             Err(object_store::Error::AlreadyExists { .. }) => {}
             Err(e) => return Err(e.into()),

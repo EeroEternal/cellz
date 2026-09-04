@@ -4,8 +4,8 @@ use std::time::Duration;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
@@ -43,7 +43,10 @@ pub async fn sse_events_stream(
 
     // 2. Query historical events if since_seq is provided
     let (history, max_seen_seq) = if let Some(since) = since_seq {
-        let events = handle.get_events(Some(since), None).await.unwrap_or_default();
+        let events = handle
+            .get_events(Some(since), None)
+            .await
+            .unwrap_or_default();
         let max = events.last().map(|e| e.sequence).unwrap_or(since);
         (events, max)
     } else {
@@ -85,7 +88,11 @@ pub async fn sse_events_stream(
     let stream = history_stream.chain(live_stream);
 
     Sse::new(stream)
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("keep-alive"))
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("keep-alive"),
+        )
         .into_response()
 }
 
@@ -126,7 +133,8 @@ async fn handle_socket(socket: WebSocket, handle: crate::cell::CellHandle) {
     let cell_id_clone = handle.cell_id.clone();
     let mut send_task = tokio::spawn(async move {
         while let Ok(event) = event_rx.recv().await {
-            let Ok(msg_str) = serde_json::to_string(&json!({ "type": "event", "data": event })) else {
+            let Ok(msg_str) = serde_json::to_string(&json!({ "type": "event", "data": event }))
+            else {
                 continue;
             };
             if sender.send(Message::Text(msg_str.into())).await.is_err() {

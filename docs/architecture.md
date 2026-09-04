@@ -24,6 +24,7 @@ It provides **isolated per-session SQLite storage**, **append-only event sourcin
                       │  │  - Materialized Message Projection│  │
                       │  │  - Key-Value State Machine        │  │
                       │  │  - Dedicated SQLite (WAL Mode)    │  │
+                      │  │  - One OS thread + rusqlite conn  │  │
                       │  └────────────────┬─────────────────┘  │
                       └───────────────────┼────────────────────┘
                                           │
@@ -44,7 +45,7 @@ It provides **isolated per-session SQLite storage**, **append-only event sourcin
 - **Granular Sharding**: Instead of a monolithic central database with heavy concurrent lock contention, each Agent session corresponds to an isolated **Cell**.
 - **Dedicated SQLite**: Every Cell maintains its own SQLite database file (`data/cells/<cell_id>.db`) operating in `WAL` (Write-Ahead-Logging) mode with synchronous normal durability.
 - **Actor Lifecycle**:
-  - `Active`: Actor is loaded in memory, holding SQLite pool connections and serving queries with sub-millisecond response times.
+  - `Active`: Actor runs on a dedicated OS thread owning a single `rusqlite` connection, serving queries with sub-millisecond local commits.
   - `Idle / Evicted`: When inactive, the actor performs a WAL checkpoint, pushes a snapshot to `BlobStore`, releases its lease, and drops from memory.
   - `Auto-Recovery`: A query to an evicted cell automatically acquires the single-writer lease, downloads the latest snapshot from storage (if not present locally), and boots the actor on demand.
 
@@ -68,6 +69,22 @@ It provides **isolated per-session SQLite storage**, **append-only event sourcin
 - Any event appended triggers zero-latency pushes to:
   - **Server-Sent Events (SSE)** via `GET /api/v1/cells/:id/stream`.
   - **WebSocket** via `GET /api/v1/cells/:id/ws` for full-duplex interactive sessions.
+
+### 2.5 Cargo features
+
+The crate is split so in-process embedders (e.g. gitcell) do not compile the HTTP or S3 stacks:
+
+| Feature | Default | Surface |
+| --- | --- | --- |
+| *(always on)* | — | `CellDb` / `CellActor` / `CellManager`, events, messages, KV, checkpoints, `LocalBlobStore` |
+| `server` | yes | Axum REST + SSE + WebSocket (`create_router`) |
+| `s3` | no | `S3BlobStore` (`object_store` aws) |
+
+Event sourcing is the cell write model and is not optional. `default-features = false` is the light embed path.
+
+The core keeps a tokio mailbox so `CellHandle` stays async. SQL does not run on the tokio worker: the actor thread owns the `rusqlite` connection and processes mailbox messages with `blocking_recv`. Do not disable tokio in the core.
+
+S3 / R2 is compile-time optional. `CELLZ_STORAGE_BACKEND=s3` without `--features s3` is a configuration error, not a silent fallback to local disk.
 
 ---
 

@@ -1,17 +1,10 @@
-use axum::{
-    Json,
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
-use serde_json::json;
-
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Crate-level error returned by the cellz library and HTTP handlers.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(#[from] rusqlite::Error),
 
     #[error("Configuration error: {0}")]
     Config(String),
@@ -23,8 +16,13 @@ pub enum Error {
     Internal(#[from] anyhow::Error),
 }
 
-impl IntoResponse for Error {
-    fn into_response(self) -> Response {
+#[cfg(feature = "server")]
+impl axum::response::IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        use axum::Json;
+        use axum::http::StatusCode;
+        use serde_json::json;
+
         let (status, message) = match &self {
             Error::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             Error::Database(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),

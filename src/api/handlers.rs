@@ -1,15 +1,17 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::cell::CellManager;
 use crate::model::event::AppendEventRequest;
-use crate::model::state::{CreateCellRequest, CreateCheckpointRequest, RestoreCheckpointRequest, SetKVRequest};
+use crate::model::state::{
+    CreateCellRequest, CreateCheckpointRequest, RestoreCheckpointRequest, SetKVRequest,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -85,7 +87,10 @@ pub async fn append_event(
     Json(req): Json<AppendEventRequest>,
 ) -> impl IntoResponse {
     match state.manager.get_or_activate(&cell_id).await {
-        Ok(handle) => match handle.append_event(req.turn_id, req.event_type, req.payload).await {
+        Ok(handle) => match handle
+            .append_event(req.turn_id, req.event_type, req.payload)
+            .await
+        {
             Ok(event) => (StatusCode::CREATED, Json(json!({ "event": event }))).into_response(),
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -238,9 +243,11 @@ pub async fn create_checkpoint(
     let label = req.label.unwrap_or_else(|| "manual".to_string());
     match state.manager.get_or_activate(&cell_id).await {
         Ok(handle) => match handle.create_checkpoint(label).await {
-            Ok(checkpoint) => {
-                (StatusCode::CREATED, Json(json!({ "checkpoint": checkpoint }))).into_response()
-            }
+            Ok(checkpoint) => (
+                StatusCode::CREATED,
+                Json(json!({ "checkpoint": checkpoint })),
+            )
+                .into_response(),
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e.to_string() })),

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{info, warn};
@@ -94,7 +95,8 @@ impl CellHandle {
             })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn append_events_batch(
@@ -106,7 +108,8 @@ impl CellHandle {
             .send(ActorMessage::AppendEventsBatch { requests, reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn export(&self) -> Result<crate::model::state::CellExport> {
@@ -115,10 +118,15 @@ impl CellHandle {
             .send(ActorMessage::Export { reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
-    pub async fn get_events(&self, since_seq: Option<i64>, limit: Option<i64>) -> Result<Vec<EventRecord>> {
+    pub async fn get_events(
+        &self,
+        since_seq: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<EventRecord>> {
         let (reply, rx) = oneshot::channel();
         self.tx
             .send(ActorMessage::GetEvents {
@@ -128,7 +136,8 @@ impl CellHandle {
             })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn get_messages(&self) -> Result<Vec<Message>> {
@@ -137,7 +146,8 @@ impl CellHandle {
             .send(ActorMessage::GetMessages { reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn get_meta(&self) -> Result<CellMeta> {
@@ -146,7 +156,8 @@ impl CellHandle {
             .send(ActorMessage::GetMeta { reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn set_kv(&self, key: impl Into<String>, value: Value) -> Result<()> {
@@ -159,7 +170,8 @@ impl CellHandle {
             })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn get_kv(&self, key: impl Into<String>) -> Result<Option<Value>> {
@@ -171,7 +183,8 @@ impl CellHandle {
             })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn list_kv(&self) -> Result<HashMap<String, Value>> {
@@ -180,7 +193,8 @@ impl CellHandle {
             .send(ActorMessage::ListKV { reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn create_checkpoint(&self, label: impl Into<String>) -> Result<CheckpointRecord> {
@@ -192,7 +206,8 @@ impl CellHandle {
             })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn restore_checkpoint(&self, checkpoint_id: impl Into<String>) -> Result<i64> {
@@ -204,7 +219,8 @@ impl CellHandle {
             })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn checkpoint_wal(&self) -> Result<()> {
@@ -213,7 +229,8 @@ impl CellHandle {
             .send(ActorMessage::CheckpointWal { reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn backup(&self) -> Result<Vec<u8>> {
@@ -222,7 +239,8 @@ impl CellHandle {
             .send(ActorMessage::Backup { reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))?
     }
 
     pub async fn fence(&self) {
@@ -235,7 +253,8 @@ impl CellHandle {
             .send(ActorMessage::GetIdleDuration { reply })
             .await
             .map_err(|_| anyhow::anyhow!("Cell actor mailbox closed"))?;
-        rx.await.map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Cell actor dropped reply"))
     }
 
     pub async fn shutdown(&self) {
@@ -259,34 +278,60 @@ pub struct CellActor {
 }
 
 impl CellActor {
-    pub fn spawn(cell_id: &str, db: CellDb) -> CellHandle {
+    /// Spawn a dedicated OS thread that owns the cell's rusqlite connection.
+    pub fn spawn(
+        cell_id: impl Into<String>,
+        db_path: impl AsRef<Path>,
+        initial_name: Option<String>,
+    ) -> Result<CellHandle> {
+        let cell_id = cell_id.into();
+        let db_path = db_path.as_ref().to_path_buf();
         let (tx, rx) = mpsc::channel(128);
         let (event_bus, _) = broadcast::channel(256);
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
 
-        let actor = Self {
-            cell_id: cell_id.to_string(),
-            db,
-            event_bus: event_bus.clone(),
-            rx,
-            last_active: Instant::now(),
-        };
+        let thread_cell_id = cell_id.clone();
+        let event_bus_for_actor = event_bus.clone();
+        let short: String = cell_id.chars().take(8).collect();
+        let thread_name = format!("cell-{short}");
 
-        let cell_id_clone = cell_id.to_string();
-        tokio::spawn(async move {
-            actor.run().await;
-        });
+        std::thread::Builder::new()
+            .name(thread_name)
+            .spawn(
+                move || match CellDb::open(&thread_cell_id, &db_path, initial_name.as_deref()) {
+                    Ok(db) => {
+                        let actor = CellActor {
+                            cell_id: thread_cell_id,
+                            db,
+                            event_bus: event_bus_for_actor,
+                            rx,
+                            last_active: Instant::now(),
+                        };
+                        let _ = ready_tx.send(Ok(()));
+                        actor.run();
+                    }
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(e));
+                    }
+                },
+            )
+            .context("failed to spawn cell actor thread")?;
 
-        CellHandle {
-            cell_id: cell_id_clone,
+        ready_rx
+            .recv()
+            .context("cell actor thread dropped before ready")??;
+
+        Ok(CellHandle {
+            cell_id,
             tx,
             event_bus,
-        }
+        })
     }
 
-    async fn run(mut self) {
+    fn run(mut self) {
         info!("CellActor [{}] spawned and running", self.cell_id);
 
-        while let Some(msg) = self.rx.recv().await {
+        while let Some(msg) = self.rx.blocking_recv() {
             self.last_active = Instant::now();
 
             match msg {
@@ -296,15 +341,14 @@ impl CellActor {
                     payload,
                     reply,
                 } => {
-                    let res = self.db.append_event(turn_id, &event_type, payload).await;
+                    let res = self.db.append_event(turn_id, &event_type, payload);
                     if let Ok(ref record) = res {
-                        // Broadcast event to active subscribers (SSE / WS)
                         let _ = self.event_bus.send(record.clone());
                     }
                     let _ = reply.send(res);
                 }
                 ActorMessage::AppendEventsBatch { requests, reply } => {
-                    let res = self.db.append_events_batch(requests).await;
+                    let res = self.db.append_events_batch(requests);
                     if let Ok(ref records) = res {
                         for rec in records {
                             let _ = self.event_bus.send(rec.clone());
@@ -313,7 +357,7 @@ impl CellActor {
                     let _ = reply.send(res);
                 }
                 ActorMessage::Export { reply } => {
-                    let res = self.db.export_cell().await;
+                    let res = self.db.export_cell();
                     let _ = reply.send(res);
                 }
                 ActorMessage::GetEvents {
@@ -321,56 +365,57 @@ impl CellActor {
                     limit,
                     reply,
                 } => {
-                    let res = self.db.get_events(since_seq, limit).await;
+                    let res = self.db.get_events(since_seq, limit);
                     let _ = reply.send(res);
                 }
                 ActorMessage::GetMessages { reply } => {
-                    let res = self.db.get_messages().await;
+                    let res = self.db.get_messages();
                     let _ = reply.send(res);
                 }
                 ActorMessage::GetMeta { reply } => {
-                    let res = self.db.get_meta().await;
+                    let res = self.db.get_meta();
                     let _ = reply.send(res);
                 }
                 ActorMessage::SetKV { key, value, reply } => {
-                    let res = self.db.set_kv(&key, &value).await;
+                    let res = self.db.set_kv(&key, &value);
                     let _ = reply.send(res);
                 }
                 ActorMessage::GetKV { key, reply } => {
-                    let res = self.db.get_kv(&key).await;
+                    let res = self.db.get_kv(&key);
                     let _ = reply.send(res);
                 }
                 ActorMessage::ListKV { reply } => {
-                    let res = self.db.list_kv().await;
+                    let res = self.db.list_kv();
                     let _ = reply.send(res);
                 }
                 ActorMessage::CreateCheckpoint { label, reply } => {
-                    let res = self.db.create_checkpoint(&label).await;
+                    let res = self.db.create_checkpoint(&label);
                     let _ = reply.send(res);
                 }
                 ActorMessage::RestoreCheckpoint {
                     checkpoint_id,
                     reply,
                 } => {
-                    let res = self.db.restore_checkpoint(&checkpoint_id).await;
+                    let res = self.db.restore_checkpoint(&checkpoint_id);
                     let _ = reply.send(res);
                 }
                 ActorMessage::CheckpointWal { reply } => {
-                    let res = self.db.checkpoint_wal().await;
+                    let res = self.db.checkpoint_wal();
                     let _ = reply.send(res);
                 }
                 ActorMessage::Backup { reply } => {
-                    let res = async {
-                        self.db.checkpoint_wal().await?;
-                        tokio::fs::read(self.db.db_path()).await.map_err(Into::into)
-                    }
-                    .await;
+                    let res = (|| {
+                        self.db.checkpoint_wal()?;
+                        std::fs::read(self.db.db_path()).map_err(Into::into)
+                    })();
                     let _ = reply.send(res);
                 }
                 ActorMessage::Fence => {
-                    warn!("CellActor [{}] fenced due to lease expiration or takeover", self.cell_id);
-                    let _ = self.db.update_status(CellStatus::Suspended).await;
-                    self.db.close().await;
+                    warn!(
+                        "CellActor [{}] fenced due to lease expiration or takeover",
+                        self.cell_id
+                    );
+                    let _ = self.db.update_status(CellStatus::Suspended);
                     break;
                 }
                 ActorMessage::GetIdleDuration { reply } => {
@@ -378,9 +423,8 @@ impl CellActor {
                 }
                 ActorMessage::Shutdown { reply } => {
                     info!("CellActor [{}] received shutdown signal", self.cell_id);
-                    let _ = self.db.update_status(CellStatus::Suspended).await;
-                    let _ = self.db.checkpoint_wal().await;
-                    self.db.close().await;
+                    let _ = self.db.update_status(CellStatus::Suspended);
+                    let _ = self.db.checkpoint_wal();
                     let _ = reply.send(());
                     break;
                 }

@@ -15,8 +15,9 @@ description: Push 前必须在本地跑满与 CI 等效的门禁(Rust fmt/clippy
 
 ```bash
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo check --no-default-features --tests
 bash scripts/check_ui_stack.sh
 bash scripts/check_admin_nav.sh
 (cd admin && npx tsc -b --noEmit && npm run lint)

@@ -1,3 +1,5 @@
+#![cfg(feature = "s3")]
+
 use cellz::storage::{BlobStore, S3BlobStore};
 
 #[tokio::test]

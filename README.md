@@ -18,7 +18,7 @@ While projects like [denoland/celld](https://github.com/denoland/celld) bring Cl
 - **Pure State & Stream Plane**: `cellz` does **not** execute user code inside the cell. It is completely language-agnostic, exposing REST, SSE, and WebSocket interfaces so agents written in Rust, Python, TypeScript, or Go can connect instantly.
 - **Agent-Native Primitives**: Built-in event sourcing, message materialization, key-value stores (Todos, Compactions), checkpointing, and branch rewinding.
 - **Atomic Single-Writer CAS Leases**: Prevents split-brain across multiple distributed workers using S3 `PutMode::Create` / `If-Match` ETag conditional writes and atomic OS filesystem locks.
-- **Actor Mailbox Serialization**: Snapshots (`wal_checkpoint(TRUNCATE)`) and state exports are serialized within the cell's actor mailbox, eliminating race gaps between WAL writes and backup reads.
+- **Dedicated Actor Thread**: Each cell runs on its own OS thread with a single `rusqlite` connection. Snapshots (`wal_checkpoint(TRUNCATE)`) and state exports are serialized in the actor mailbox, eliminating race gaps between WAL writes and backup reads. `CellHandle` remains async.
 - **Lossless Realtime Reconnection**: SSE stream supports `Last-Event-ID` and `?since=` query parameters to seamlessly replay historical missed events before transitioning to live broadcast.
 
 ---
@@ -70,31 +70,50 @@ cellz
 Embed the Axum router in your own process:
 
 ```toml
-[dependencies]
-cellz = "0.1"
+# HTTP daemon API (default)
+cellz = "0.2"
+
+# In-process core only — no Axum / object_store (gitcell, embed)
+cellz = { version = "0.2", default-features = false }
+
+# + S3 / Cloudflare R2 snapshots
+cellz = { version = "0.2", features = ["s3"] }
 ```
 
 ```rust
 use std::sync::Arc;
 use cellz::cell::CellManager;
 use cellz::config::Config;
-use cellz::server::create_router;
 use cellz::storage::LocalBlobStore;
 
 let config = Config::default();
 let storage = Arc::new(LocalBlobStore::new(&config.storage_dir));
-let manager = Arc::new(CellManager::new(
+let manager = CellManager::new(
     &config.data_dir,
     storage,
     config.lease_ttl_secs,
-));
-let app = create_router(manager);
+);
 ```
+
+With the default `server` feature, `cellz::create_router(manager)` exposes the HTTP / SSE / WebSocket API.
+
+### Cargo features
+
+| Feature | Default | What it enables |
+| :--- | :---: | :--- |
+| *(core, always on)* | — | Per-cell SQLite, event sourcing, messages, KV, checkpoints, `LocalBlobStore` |
+| `server` | yes | Axum HTTP + SSE + WebSocket daemon (`create_router`) |
+| `s3` | no | `S3BlobStore` via `object_store` (S3 / Cloudflare R2) |
+
+Event sourcing is the write model of a cell and is not feature-gated.
 
 ### 1. Run the Daemon from source
 
 ```bash
-# Local filesystem storage
+cargo install cellz                 # local filesystem storage
+cargo install cellz --features s3   # + S3 / Cloudflare R2
+
+# Local filesystem storage (from source)
 cargo run --release
 
 # Or with Cloudflare R2 / S3
@@ -103,7 +122,7 @@ export CELLZ_S3_ENDPOINT="https://<account_id>.r2.cloudflarestorage.com"
 export CELLZ_S3_BUCKET="zene-cells"
 export CELLZ_S3_ACCESS_KEY_ID="<your_key>"
 export CELLZ_S3_SECRET_ACCESS_KEY="<your_secret>"
-cargo run --release
+cargo run --release --features s3
 ```
 
 ### 2. Configuration Options
@@ -157,21 +176,23 @@ Full API documentation and request/response payloads are available in [API Refer
 Run full test suite:
 
 ```bash
-cargo test --workspace
+cargo test --workspace --all-features
+cargo check --no-default-features
 ```
 
 Run linter:
 
 ```bash
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 ---
 
 ## 📚 Documentation Index
 
-- [Architecture Specification](docs/architecture.md): Deep dive into Per-Cell SQLite, Actor lifecycle, and lease management.
+- [Architecture Specification](docs/architecture.md): Per-cell SQLite, dedicated actor thread, cargo features, and lease management.
 - [API Reference](docs/api.md): Complete REST, SSE, and WebSocket endpoints specification.
+- [Changelog](CHANGELOG.md): Released crate versions.
 - [Admin UI Kit](admin/README.md): Admin console UI framework and component catalog.
 
 ---

@@ -1,3 +1,5 @@
+#![cfg(feature = "server")]
+
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -6,7 +8,7 @@ use cellz::cell::CellManager;
 use cellz::server::create_router;
 use cellz::storage::LocalBlobStore;
 use http_body_util::BodyExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
 async fn setup_test_app() -> (axum::Router, tempfile::TempDir) {

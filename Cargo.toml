@@ -1,6 +1,6 @@
 [package]
 name = "cellz"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["eero <songmqq@proton.me>"]
@@ -30,20 +30,26 @@ path = "src/lib.rs"
 [[bin]]
 name = "cellz"
 path = "src/main.rs"
+required-features = ["server"]
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[features]
+default = ["server"]
+# HTTP + SSE + WebSocket daemon (Axum). Disable for in-process embed.
+server = ["dep:axum", "dep:tower-http", "dep:tokio-stream", "dep:futures", "tokio/net"]
+# S3 / Cloudflare R2 blob store via object_store.
+s3 = ["dep:object_store"]
+
 [dependencies]
-tokio = { version = "1.43", features = ["full"] }
-axum = { version = "0.8", features = ["json", "ws", "macros"] }
-tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tokio = { version = "1.43", default-features = false, features = ["rt-multi-thread", "macros", "fs", "sync", "time", "io-util"] }
+axum = { version = "0.8", optional = true, features = ["json", "ws", "macros"] }
+tower-http = { version = "0.6", optional = true, features = ["cors", "trace"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "sqlite", "chrono", "uuid", "migrate"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -51,11 +57,12 @@ uuid = { version = "1.12", features = ["v4", "serde"] }
 anyhow = "1.0"
 thiserror = "2.0"
 async-trait = "0.1"
-tokio-stream = { version = "0.1", features = ["sync"] }
-futures = "0.3"
-object_store = { version = "0.11", default-features = false, features = ["aws"] }
+tokio-stream = { version = "0.1", optional = true, features = ["sync"] }
+futures = { version = "0.3", optional = true }
+object_store = { version = "0.11", optional = true, default-features = false, features = ["aws"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
 http-body-util = "0.1"
 tempfile = "3.17"
+tower = { version = "0.5", features = ["util"] }

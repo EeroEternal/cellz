@@ -19,26 +19,44 @@ async fn main() -> Result<()> {
         .init();
 
     let config = Config::default();
-    let storage: Arc<dyn cellz::storage::BlobStore> = if config.storage_backend == "s3" {
-        let endpoint = config.s3_endpoint.as_deref().unwrap_or_default();
-        let bucket = config.s3_bucket.as_deref().unwrap_or_default();
-        let access_key = config.s3_access_key_id.as_deref().unwrap_or_default();
-        let secret_key = config.s3_secret_access_key.as_deref().unwrap_or_default();
-        let region = config.s3_region.as_deref();
+    let storage: Arc<dyn cellz::storage::BlobStore> = match config.storage_backend.as_str() {
+        "s3" => {
+            #[cfg(feature = "s3")]
+            {
+                let endpoint = config.s3_endpoint.as_deref().unwrap_or_default();
+                let bucket = config.s3_bucket.as_deref().unwrap_or_default();
+                let access_key = config.s3_access_key_id.as_deref().unwrap_or_default();
+                let secret_key = config.s3_secret_access_key.as_deref().unwrap_or_default();
+                let region = config.s3_region.as_deref();
 
-        info!("📦 Initializing S3/R2 BlobStore for bucket '{}' at '{}'", bucket, endpoint);
-        Arc::new(cellz::storage::S3BlobStore::new(
-            endpoint,
-            bucket,
-            access_key,
-            secret_key,
-            region,
-        )?)
-    } else {
-        info!("📂 Initializing Local Filesystem BlobStore at {:?}", config.storage_dir);
-        Arc::new(LocalBlobStore::new(&config.storage_dir))
+                info!(
+                    "📦 Initializing S3/R2 BlobStore for bucket '{}' at '{}'",
+                    bucket, endpoint
+                );
+                Arc::new(cellz::storage::S3BlobStore::new(
+                    endpoint, bucket, access_key, secret_key, region,
+                )?)
+            }
+            #[cfg(not(feature = "s3"))]
+            {
+                anyhow::bail!(
+                    "CELLZ_STORAGE_BACKEND=s3 requires the `s3` cargo feature (rebuild with `--features s3`)"
+                );
+            }
+        }
+        _ => {
+            info!(
+                "📂 Initializing Local Filesystem BlobStore at {:?}",
+                config.storage_dir
+            );
+            Arc::new(LocalBlobStore::new(&config.storage_dir))
+        }
     };
-    let manager = Arc::new(CellManager::new(&config.data_dir, storage, config.lease_ttl_secs));
+    let manager = Arc::new(CellManager::new(
+        &config.data_dir,
+        storage,
+        config.lease_ttl_secs,
+    ));
 
     // Background task to periodically renew leases for all active in-memory cells
     let lease_manager = Arc::clone(&manager);
@@ -56,7 +74,9 @@ async fn main() -> Result<()> {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
-            idle_manager.evict_idle_cells(Duration::from_secs(300)).await;
+            idle_manager
+                .evict_idle_cells(Duration::from_secs(300))
+                .await;
         }
     });
 
