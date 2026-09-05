@@ -1,10 +1,11 @@
-//! SQLite-per-session, event-sourced state server for AI agents.
+//! SQLite-per-cell state and stream plane for isolated actors.
 //!
-//! `cellz` is a language-agnostic state and stream plane. Each session is a
-//! single-writer SQLite cell with event sourcing, message projection, KV state,
-//! and checkpoints. Enable `server` (default) for lossless SSE / WebSocket
-//! replay over HTTP. Enable `s3` for durable leases and snapshots on S3 /
-//! Cloudflare R2; the default blob backend is the local filesystem.
+//! Each cell is a single-writer SQLite unit with event sourcing, message
+//! projection, generic KV, and checkpoints. `cellz` does not execute user code,
+//! call models, or specialize in AI agents — an agent is one kind of client.
+//! Enable `server` (default) for lossless SSE / WebSocket replay over HTTP.
+//! Enable `s3` for durable leases and snapshots on S3 / Cloudflare R2; the
+//! default blob backend is the local filesystem.
 //!
 //! # Install the daemon
 //!
@@ -36,7 +37,7 @@
 //!     config.lease_ttl_secs,
 //! );
 //! let _handle = manager
-//!     .create_cell(Some("agent-1".into()), Some("demo".into()), None)
+//!     .create_cell(Some("cell-1".into()), Some("demo".into()), None)
 //!     .await?;
 //! # Ok(())
 //! # }

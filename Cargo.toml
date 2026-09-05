@@ -4,13 +4,13 @@ version = "0.2.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["eero <songmqq@proton.me>"]
-description = "SQLite-per-session, event-sourced state server for AI agents"
+description = "SQLite-per-cell state and stream plane for isolated actors"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/EeroEternal/cellz"
 homepage = "https://github.com/EeroEternal/cellz"
 documentation = "https://docs.rs/cellz"
-keywords = ["ai-agents", "sqlite", "event-sourcing", "sse", "durable-objects"]
+keywords = ["sqlite", "event-sourcing", "sse", "actor"]
 categories = ["web-programming", "database", "asynchronous"]
 exclude = [
     "/.agents/",

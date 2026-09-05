@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Docs
+- Locked the product as a generic cell for any isolated actor, not an
+  agent-specific store. Dropped “Scheduling Daemon”, Durable Objects
+  keywords, and “for AI agents” as crate identity. Event types are opaque
+  strings; KV is generic; checkpoint restore is in-place event truncate
+  (not fork, not messages/KV rollback). `*_message` projection stays as a
+  convenience for chat-shaped logs.
+
 ## 0.2.1 — 2026-09-04
 
 - Removed `#![feature(doc_auto_cfg)]`, which nightly rustdoc (docs.rs) has dropped. The 0.2.0 docs.rs build failed with E0557.

@@ -29,10 +29,9 @@ Create and immediately activate a new Cell.
 ```json
 {
   "id": "optional-custom-cell-id",
-  "name": "My Agent Session",
+  "name": "session-1",
   "metadata": {
-    "project": "zene",
-    "model": "claude-3-7-sonnet"
+    "project": "demo"
   }
 }
 ```
@@ -42,7 +41,7 @@ Create and immediately activate a new Cell.
 {
   "cell": {
     "id": "optional-custom-cell-id",
-    "name": "My Agent Session",
+    "name": "session-1",
     "status": "active",
     "event_sequence": 0,
     "created_at": "2026-09-03T18:00:00Z",
@@ -63,7 +62,7 @@ List all cells on the current node (active in-memory and persisted on disk).
   "cells": [
     {
       "id": "session-1",
-      "name": "Agent 1",
+      "name": "cell 1",
       "status": "active",
       "event_sequence": 42,
       "created_at": "2026-09-03T18:00:00Z",
@@ -84,7 +83,7 @@ Retrieve metadata and status of a specific Cell. If the Cell is inactive, it wil
 {
   "cell": {
     "id": "session-1",
-    "name": "Agent 1",
+    "name": "cell 1",
     "status": "active",
     "event_sequence": 42,
     "created_at": "2026-09-03T18:00:00Z",
@@ -182,7 +181,7 @@ Retrieve all materialized chat messages in chronological order.
 
 ---
 
-## Agent State (KV Store)
+## Cell State (KV Store)
 
 ### `GET /api/v1/cells/{id}/kv`
 Fetch all key-value entries stored in the Cell.
@@ -224,6 +223,8 @@ Set or update a specific key-value entry.
 
 ## Checkpoints & Rewind
 
+A checkpoint is a named sequence marker. Restore truncates the **event log** after that sequence and appends `rewound`. It does not fork a cell, and it does not roll back `messages` or `kv_state`.
+
 ### `POST /api/v1/cells/{id}/checkpoints`
 Create a named checkpoint snapshot at the current event sequence.
 
@@ -250,7 +251,7 @@ Create a named checkpoint snapshot at the current event sequence.
 ---
 
 ### `POST /api/v1/cells/{id}/restore`
-Roll back the Cell state to the event sequence represented by a checkpoint.
+Truncate `events` after the checkpoint sequence and append a `rewound` event.
 
 **Request Body:**
 ```json

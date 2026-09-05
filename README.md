@@ -1,7 +1,7 @@
 # cellz
 
-> **SQLite-per-session, event-sourced state server for AI agents**  
-> Language-agnostic state & stream plane with atomic CAS leasing, Cloudflare R2 / S3 durability, and sub-millisecond local commits. Built in 100% Rust.
+> **SQLite-per-cell state and stream plane**  
+> Language-agnostic event log, message projection, and SSE/WebSocket replay. Atomic CAS leasing, local or S3 / R2 snapshots, sub-millisecond local commits. Does not execute user code. Built in 100% Rust.
 
 [![CI](https://github.com/EeroEternal/cellz/actions/workflows/ci.yml/badge.svg)](https://github.com/EeroEternal/cellz/actions)
 [![crates.io](https://img.shields.io/crates/v/cellz.svg)](https://crates.io/crates/cellz)
@@ -11,15 +11,24 @@
 
 ---
 
-## ⚡ Positioning & Comparison with `celld`
+## Positioning
 
-While projects like [denoland/celld](https://github.com/denoland/celld) bring Cloudflare Durable Objects to self-hosted environments by executing JavaScript/TypeScript Workers inside a sandbox, **`cellz` takes a different, agent-focused path**:
+**cellz is a per-cell state and stream plane for isolated actors.** A cell does not know whether its client is an AI agent, a workflow, a UI, or another service. Compute stays outside. The cell stores history, optionally projects chat-shaped events, and streams it back. Full boundary: [Architecture §1](docs/architecture.md#1-product-boundary).
 
-- **Pure State & Stream Plane**: `cellz` does **not** execute user code inside the cell. It is completely language-agnostic, exposing REST, SSE, and WebSocket interfaces so agents written in Rust, Python, TypeScript, or Go can connect instantly.
-- **Agent-Native Primitives**: Built-in event sourcing, message materialization, key-value stores (Todos, Compactions), checkpointing, and branch rewinding.
-- **Atomic Single-Writer CAS Leases**: Prevents split-brain across multiple distributed workers using S3 `PutMode::Create` / `If-Match` ETag conditional writes and atomic OS filesystem locks.
-- **Dedicated Actor Thread**: Each cell runs on its own OS thread with a single `rusqlite` connection. Snapshots (`wal_checkpoint(TRUNCATE)`) and state exports are serialized in the actor mailbox, eliminating race gaps between WAL writes and backup reads. `CellHandle` remains async.
-- **Lossless Realtime Reconnection**: SSE stream supports `Last-Event-ID` and `?since=` query parameters to seamlessly replay historical missed events before transitioning to live broadcast.
+| In this crate | Not this crate |
+| --- | --- |
+| Per-cell SQLite, event log, message projection, generic KV | User-code isolates / JS Workers (`celld`, Durable Objects) |
+| Named checkpoints; in-place event-log rewind | Cell fork / branch; application logic |
+| CAS single-writer lease + blob snapshots | Job scheduler, cron, multi-cell orchestration |
+| REST / SSE / WebSocket, or in-process `CellManager` | LLM gateway, API keys, Admin UI |
+
+- **No user code in the cell.** Any client in Rust, Python, TypeScript, Go, … attaches over HTTP / SSE / WebSocket, or embeds the crate with `default-features = false`.
+- **Event types are client strings.** Only `user_message` / `agent_message` / `system_message` are projected into `messages` (a convenience for chat-shaped logs, not an agent schema). KV is generic — there is no Todos table.
+- **Atomic single-writer CAS leases.** S3 `PutMode::Create` / `If-Match` ETag, or atomic OS filesystem locks. Prevents split-brain across nodes.
+- **Dedicated actor thread.** One OS thread and one `rusqlite` connection per cell. Snapshots (`wal_checkpoint(TRUNCATE)`) go through the mailbox so WAL writes and backup reads cannot race. `CellHandle` stays async.
+- **Lossless reconnect.** SSE / WebSocket honor `Last-Event-ID` and `?since=` — replay missed events, then live broadcast.
+
+[denoland/celld](https://github.com/denoland/celld) self-hosts Durable Objects by running JS/TS Workers. cellz takes isolation and single-writer hibernation from that design and **stops before the isolate**. An AI agent is one kind of client, not the product.
 
 ---
 
@@ -27,7 +36,7 @@ While projects like [denoland/celld](https://github.com/denoland/celld) bring Cl
 
 ```text
                ┌────────────────────────────────────────────────────────┐
-               │              Client / Web UI / Coding Agent            │
+               │              Client / actor (any process)              │
                └──────────────────────────┬─────────────────────────────┘
                                           │ HTTP / SSE (Last-Event-ID) / WS
                                           ▼
@@ -149,10 +158,10 @@ cargo run --release --features s3
 # 1. Create a new Cell
 curl -X POST http://localhost:8080/api/v1/cells \
   -H "Content-Type: application/json" \
-  -d '{"id": "agent-007", "name": "Refactor Agent"}'
+  -d '{"id": "cell-007", "name": "demo"}'
 
 # 2. Append a user message
-curl -X POST http://localhost:8080/api/v1/cells/agent-007/events \
+curl -X POST http://localhost:8080/api/v1/cells/cell-007/events \
   -H "Content-Type: application/json" \
   -d '{
     "turn_id": "turn-1",
@@ -161,10 +170,10 @@ curl -X POST http://localhost:8080/api/v1/cells/agent-007/events \
   }'
 
 # 3. Retrieve projected messages
-curl http://localhost:8080/api/v1/cells/agent-007/messages
+curl http://localhost:8080/api/v1/cells/cell-007/messages
 
 # 4. Subscribe to real-time events via SSE
-curl -N -H "Accept: text/event-stream" http://localhost:8080/api/v1/cells/agent-007/stream
+curl -N -H "Accept: text/event-stream" http://localhost:8080/api/v1/cells/cell-007/stream
 ```
 
 Full API documentation and request/response payloads are available in [API Reference](docs/api.md).
@@ -190,7 +199,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 ## 📚 Documentation Index
 
-- [Architecture Specification](docs/architecture.md): Per-cell SQLite, dedicated actor thread, cargo features, and lease management.
+- [Architecture Specification](docs/architecture.md): Product boundary, per-cell SQLite, dedicated actor thread, cargo features, and lease management.
 - [API Reference](docs/api.md): Complete REST, SSE, and WebSocket endpoints specification.
 - [Changelog](CHANGELOG.md): Released crate versions.
 
